@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.so
+
+# uv
+uv.lock
+.uv-cache/
+
+# repo-navigator runtime
+.repo-navigator.db
+.repo-navigator.db-wal
+.repo-navigator.db-shm
+parse_errors.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
