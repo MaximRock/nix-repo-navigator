@@ -1,0 +1,50 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "KW_LET",
+    "value": "let"
+  },
+  {
+    "col": 5,
+    "line": 1,
+    "type": "IDENT",
+    "value": "x"
+  },
+  {
+    "col": 7,
+    "line": 1,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "INT",
+    "value": "1"
+  },
+  {
+    "col": 10,
+    "line": 1,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 12,
+    "line": 1,
+    "type": "KW_IN",
+    "value": "in"
+  },
+  {
+    "col": 15,
+    "line": 1,
+    "type": "IDENT",
+    "value": "x"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

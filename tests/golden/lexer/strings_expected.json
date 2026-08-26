@@ -1,0 +1,104 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "IDENT",
+    "value": "x"
+  },
+  {
+    "col": 3,
+    "line": 1,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 5,
+    "line": 1,
+    "type": "STRING_DOUBLE",
+    "value": "hello"
+  },
+  {
+    "col": 12,
+    "line": 1,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "IDENT",
+    "value": "y"
+  },
+  {
+    "col": 3,
+    "line": 2,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 5,
+    "line": 2,
+    "type": "STRING_HEREDOC",
+    "value": "\n  line1\n  line2\n"
+  },
+  {
+    "col": 3,
+    "line": 5,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 1,
+    "line": 6,
+    "type": "IDENT",
+    "value": "z"
+  },
+  {
+    "col": 3,
+    "line": 6,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 5,
+    "line": 6,
+    "type": "IDENT",
+    "value": "foo-bar-baz"
+  },
+  {
+    "col": 16,
+    "line": 6,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 1,
+    "line": 7,
+    "type": "IDENT",
+    "value": "w"
+  },
+  {
+    "col": 3,
+    "line": 7,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 5,
+    "line": 7,
+    "type": "IDENT",
+    "value": "lib'mkOption"
+  },
+  {
+    "col": 17,
+    "line": 7,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 1,
+    "line": 8,
+    "type": "EOF",
+    "value": ""
+  }
+]

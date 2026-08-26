@@ -1,0 +1,1 @@
+mkOption { type = types.bool; }

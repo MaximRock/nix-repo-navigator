@@ -1,0 +1,32 @@
+{
+  "body": {
+    "items": [
+      {
+        "arg": {
+          "base": null,
+          "path": [
+            "fd"
+          ],
+          "type": "Select"
+        },
+        "func": {
+          "base": null,
+          "path": [
+            "ripgrep"
+          ],
+          "type": "Select"
+        },
+        "type": "FunctionCall"
+      }
+    ],
+    "type": "List"
+  },
+  "expr": {
+    "base": null,
+    "path": [
+      "pkgs"
+    ],
+    "type": "Select"
+  },
+  "type": "With"
+}

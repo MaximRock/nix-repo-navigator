@@ -1,0 +1,63 @@
+{
+  "bindings": [
+    {
+      "name": "inputs",
+      "value": {
+        "base": null,
+        "path": [
+          "inputs"
+        ],
+        "type": "Select"
+      }
+    }
+  ],
+  "body": {
+    "arg": {
+      "ellipsis": true,
+      "fields": [
+        {
+          "default": null,
+          "name": "pkgs"
+        },
+        {
+          "default": null,
+          "name": "lib"
+        }
+      ]
+    },
+    "body": {
+      "bindings": [
+        {
+          "name": "x",
+          "value": {
+            "base": null,
+            "path": [
+              "inputs",
+              "nixpkgs"
+            ],
+            "type": "Select"
+          }
+        }
+      ],
+      "body": {
+        "attrs": [
+          {
+            "name": {
+              "from": null,
+              "names": [
+                "x"
+              ],
+              "type": "Inherit"
+            },
+            "value": null
+          }
+        ],
+        "recursive": false,
+        "type": "AttrSet"
+      },
+      "type": "LetIn"
+    },
+    "type": "Function"
+  },
+  "type": "LetIn"
+}

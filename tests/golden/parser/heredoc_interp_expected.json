@@ -1,0 +1,5 @@
+{
+  "type": "Literal",
+  "value": "line1 ${var} line2\n",
+  "value_type": "string"
+}

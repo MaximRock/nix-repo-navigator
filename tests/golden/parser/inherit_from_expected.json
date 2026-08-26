@@ -1,0 +1,16 @@
+{
+  "attrs": [
+    {
+      "name": {
+        "from": null,
+        "names": [
+          "ripgrep"
+        ],
+        "type": "Inherit"
+      },
+      "value": null
+    }
+  ],
+  "recursive": false,
+  "type": "AttrSet"
+}

@@ -1,0 +1,26 @@
+{
+  "arg": "x",
+  "body": {
+    "arg": "y",
+    "body": {
+      "left": {
+        "base": null,
+        "path": [
+          "x"
+        ],
+        "type": "Select"
+      },
+      "op": "+",
+      "right": {
+        "base": null,
+        "path": [
+          "y"
+        ],
+        "type": "Select"
+      },
+      "type": "BinaryOp"
+    },
+    "type": "Function"
+  },
+  "type": "Function"
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "LBRACE",
+    "value": "{"
+  },
+  {
+    "col": 3,
+    "line": 1,
+    "type": "IDENT",
+    "value": "a"
+  },
+  {
+    "col": 5,
+    "line": 1,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 7,
+    "line": 1,
+    "type": "LBRACE",
+    "value": "{"
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "IDENT",
+    "value": "b"
+  },
+  {
+    "col": 11,
+    "line": 1,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 13,
+    "line": 1,
+    "type": "INT",
+    "value": "1"
+  },
+  {
+    "col": 14,
+    "line": 1,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 16,
+    "line": 1,
+    "type": "RBRACE",
+    "value": "}"
+  },
+  {
+    "col": 17,
+    "line": 1,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 19,
+    "line": 1,
+    "type": "RBRACE",
+    "value": "}"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

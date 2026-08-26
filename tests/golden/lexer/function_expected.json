@@ -1,0 +1,50 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "IDENT",
+    "value": "x"
+  },
+  {
+    "col": 2,
+    "line": 1,
+    "type": "COLON",
+    "value": ":"
+  },
+  {
+    "col": 4,
+    "line": 1,
+    "type": "IDENT",
+    "value": "y"
+  },
+  {
+    "col": 5,
+    "line": 1,
+    "type": "COLON",
+    "value": ":"
+  },
+  {
+    "col": 7,
+    "line": 1,
+    "type": "IDENT",
+    "value": "x"
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "PLUS",
+    "value": "+"
+  },
+  {
+    "col": 11,
+    "line": 1,
+    "type": "IDENT",
+    "value": "y"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

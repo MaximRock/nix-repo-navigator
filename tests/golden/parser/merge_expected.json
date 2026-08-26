@@ -1,0 +1,18 @@
+{
+  "left": {
+    "base": null,
+    "path": [
+      "a"
+    ],
+    "type": "Select"
+  },
+  "op": "//",
+  "right": {
+    "base": null,
+    "path": [
+      "b"
+    ],
+    "type": "Select"
+  },
+  "type": "BinaryOp"
+}

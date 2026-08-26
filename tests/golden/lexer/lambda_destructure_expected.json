@@ -1,0 +1,68 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "LBRACE",
+    "value": "{"
+  },
+  {
+    "col": 3,
+    "line": 1,
+    "type": "IDENT",
+    "value": "config"
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "COMMA",
+    "value": ","
+  },
+  {
+    "col": 11,
+    "line": 1,
+    "type": "IDENT",
+    "value": "lib"
+  },
+  {
+    "col": 14,
+    "line": 1,
+    "type": "COMMA",
+    "value": ","
+  },
+  {
+    "col": 16,
+    "line": 1,
+    "type": "ELLIPSIS",
+    "value": "..."
+  },
+  {
+    "col": 20,
+    "line": 1,
+    "type": "RBRACE",
+    "value": "}"
+  },
+  {
+    "col": 21,
+    "line": 1,
+    "type": "AT",
+    "value": "@"
+  },
+  {
+    "col": 22,
+    "line": 1,
+    "type": "IDENT",
+    "value": "args"
+  },
+  {
+    "col": 26,
+    "line": 1,
+    "type": "COLON",
+    "value": ":"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

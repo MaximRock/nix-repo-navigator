@@ -1,0 +1,14 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "URI",
+    "value": "https://github.com/nixos/nixpkgs"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

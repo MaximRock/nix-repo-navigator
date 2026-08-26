@@ -1,0 +1,38 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "STRING_DOUBLE",
+    "value": "Hello "
+  },
+  {
+    "col": 8,
+    "line": 1,
+    "type": "INTERPOL_START",
+    "value": "${"
+  },
+  {
+    "col": 10,
+    "line": 1,
+    "type": "IDENT",
+    "value": "name"
+  },
+  {
+    "col": 14,
+    "line": 1,
+    "type": "INTERPOL_END",
+    "value": "}"
+  },
+  {
+    "col": 1,
+    "line": 1,
+    "type": "STRING_DOUBLE",
+    "value": "!"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

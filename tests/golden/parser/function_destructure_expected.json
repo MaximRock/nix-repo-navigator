@@ -1,0 +1,24 @@
+{
+  "arg": {
+    "ellipsis": true,
+    "fields": [
+      {
+        "default": null,
+        "name": "config"
+      },
+      {
+        "default": null,
+        "name": "lib"
+      }
+    ]
+  },
+  "body": {
+    "base": null,
+    "path": [
+      "config",
+      "a"
+    ],
+    "type": "Select"
+  },
+  "type": "Function"
+}

@@ -1,0 +1,17 @@
+{
+  "attrs": [
+    {
+      "name": {
+        "from": null,
+        "names": [
+          "a",
+          "b"
+        ],
+        "type": "Inherit"
+      },
+      "value": null
+    }
+  ],
+  "recursive": false,
+  "type": "AttrSet"
+}

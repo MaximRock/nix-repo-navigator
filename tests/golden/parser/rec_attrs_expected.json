@@ -1,0 +1,33 @@
+{
+  "attrs": [
+    {
+      "name": "a",
+      "value": {
+        "type": "Literal",
+        "value": "1",
+        "value_type": "int"
+      }
+    },
+    {
+      "name": "b",
+      "value": {
+        "left": {
+          "base": null,
+          "path": [
+            "a"
+          ],
+          "type": "Select"
+        },
+        "op": "+",
+        "right": {
+          "type": "Literal",
+          "value": "1",
+          "value_type": "int"
+        },
+        "type": "BinaryOp"
+      }
+    }
+  ],
+  "recursive": true,
+  "type": "AttrSet"
+}

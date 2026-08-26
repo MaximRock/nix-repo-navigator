@@ -1,0 +1,26 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "FLOAT",
+    "value": "3.14"
+  },
+  {
+    "col": 6,
+    "line": 1,
+    "type": "FLOAT",
+    "value": "1e10"
+  },
+  {
+    "col": 11,
+    "line": 1,
+    "type": "INT",
+    "value": "0xff"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

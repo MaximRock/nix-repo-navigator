@@ -1,0 +1,50 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "KW_IF",
+    "value": "if"
+  },
+  {
+    "col": 4,
+    "line": 1,
+    "type": "KW_THEN",
+    "value": "then"
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "KW_ELSE",
+    "value": "else"
+  },
+  {
+    "col": 14,
+    "line": 1,
+    "type": "KW_WITH",
+    "value": "with"
+  },
+  {
+    "col": 19,
+    "line": 1,
+    "type": "KW_ASSERT",
+    "value": "assert"
+  },
+  {
+    "col": 26,
+    "line": 1,
+    "type": "KW_REC",
+    "value": "rec"
+  },
+  {
+    "col": 30,
+    "line": 1,
+    "type": "KW_INHERIT",
+    "value": "inherit"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

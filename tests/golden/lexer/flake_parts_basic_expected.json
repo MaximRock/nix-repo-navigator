@@ -1,0 +1,242 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "LBRACE",
+    "value": "{"
+  },
+  {
+    "col": 3,
+    "line": 2,
+    "type": "IDENT",
+    "value": "description"
+  },
+  {
+    "col": 15,
+    "line": 2,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 17,
+    "line": 2,
+    "type": "STRING_DOUBLE",
+    "value": "demo flake"
+  },
+  {
+    "col": 29,
+    "line": 2,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 3,
+    "line": 3,
+    "type": "IDENT",
+    "value": "inputs"
+  },
+  {
+    "col": 9,
+    "line": 3,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 10,
+    "line": 3,
+    "type": "IDENT",
+    "value": "nixpkgs"
+  },
+  {
+    "col": 17,
+    "line": 3,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 18,
+    "line": 3,
+    "type": "IDENT",
+    "value": "url"
+  },
+  {
+    "col": 22,
+    "line": 3,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 24,
+    "line": 3,
+    "type": "STRING_DOUBLE",
+    "value": "github:NixOS/nixpkgs/nixos-unstable"
+  },
+  {
+    "col": 61,
+    "line": 3,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 3,
+    "line": 4,
+    "type": "IDENT",
+    "value": "outputs"
+  },
+  {
+    "col": 11,
+    "line": 4,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 13,
+    "line": 4,
+    "type": "LBRACE",
+    "value": "{"
+  },
+  {
+    "col": 15,
+    "line": 4,
+    "type": "IDENT",
+    "value": "self"
+  },
+  {
+    "col": 19,
+    "line": 4,
+    "type": "COMMA",
+    "value": ","
+  },
+  {
+    "col": 21,
+    "line": 4,
+    "type": "IDENT",
+    "value": "nixpkgs"
+  },
+  {
+    "col": 29,
+    "line": 4,
+    "type": "RBRACE",
+    "value": "}"
+  },
+  {
+    "col": 30,
+    "line": 4,
+    "type": "COLON",
+    "value": ":"
+  },
+  {
+    "col": 32,
+    "line": 4,
+    "type": "LBRACE",
+    "value": "{"
+  },
+  {
+    "col": 5,
+    "line": 5,
+    "type": "IDENT",
+    "value": "packages"
+  },
+  {
+    "col": 13,
+    "line": 5,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 14,
+    "line": 5,
+    "type": "IDENT",
+    "value": "x86_64-linux"
+  },
+  {
+    "col": 26,
+    "line": 5,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 27,
+    "line": 5,
+    "type": "IDENT",
+    "value": "hello"
+  },
+  {
+    "col": 33,
+    "line": 5,
+    "type": "EQ",
+    "value": "="
+  },
+  {
+    "col": 35,
+    "line": 5,
+    "type": "IDENT",
+    "value": "nixpkgs"
+  },
+  {
+    "col": 42,
+    "line": 5,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 43,
+    "line": 5,
+    "type": "IDENT",
+    "value": "legacyPackages"
+  },
+  {
+    "col": 57,
+    "line": 5,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 58,
+    "line": 5,
+    "type": "IDENT",
+    "value": "x86_64-linux"
+  },
+  {
+    "col": 70,
+    "line": 5,
+    "type": "DOT",
+    "value": "."
+  },
+  {
+    "col": 71,
+    "line": 5,
+    "type": "IDENT",
+    "value": "hello"
+  },
+  {
+    "col": 76,
+    "line": 5,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 3,
+    "line": 6,
+    "type": "RBRACE",
+    "value": "}"
+  },
+  {
+    "col": 4,
+    "line": 6,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 1,
+    "line": 7,
+    "type": "RBRACE",
+    "value": "}"
+  },
+  {
+    "col": 1,
+    "line": 8,
+    "type": "EOF",
+    "value": ""
+  }
+]

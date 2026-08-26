@@ -1,0 +1,27 @@
+{
+  "arg": {
+    "attrs": [
+      {
+        "name": "type",
+        "value": {
+          "base": null,
+          "path": [
+            "types",
+            "bool"
+          ],
+          "type": "Select"
+        }
+      }
+    ],
+    "recursive": false,
+    "type": "AttrSet"
+  },
+  "func": {
+    "base": null,
+    "path": [
+      "mkOption"
+    ],
+    "type": "Select"
+  },
+  "type": "FunctionCall"
+}

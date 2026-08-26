@@ -1,0 +1,14 @@
+[
+  {
+    "col": 1,
+    "line": 4,
+    "type": "IDENT",
+    "value": "x"
+  },
+  {
+    "col": 1,
+    "line": 5,
+    "type": "EOF",
+    "value": ""
+  }
+]

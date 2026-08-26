@@ -1,0 +1,62 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "LBRACK",
+    "value": "["
+  },
+  {
+    "col": 3,
+    "line": 1,
+    "type": "INT",
+    "value": "1"
+  },
+  {
+    "col": 5,
+    "line": 1,
+    "type": "INT",
+    "value": "2"
+  },
+  {
+    "col": 7,
+    "line": 1,
+    "type": "LPAREN",
+    "value": "("
+  },
+  {
+    "col": 8,
+    "line": 1,
+    "type": "INT",
+    "value": "3"
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "PLUS",
+    "value": "+"
+  },
+  {
+    "col": 10,
+    "line": 1,
+    "type": "INT",
+    "value": "4"
+  },
+  {
+    "col": 11,
+    "line": 1,
+    "type": "RPAREN",
+    "value": ")"
+  },
+  {
+    "col": 13,
+    "line": 1,
+    "type": "RBRACK",
+    "value": "]"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

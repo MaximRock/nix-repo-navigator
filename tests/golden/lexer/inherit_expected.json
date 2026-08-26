@@ -1,0 +1,50 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "KW_INHERIT",
+    "value": "inherit"
+  },
+  {
+    "col": 9,
+    "line": 1,
+    "type": "LPAREN",
+    "value": "("
+  },
+  {
+    "col": 10,
+    "line": 1,
+    "type": "IDENT",
+    "value": "pkgs"
+  },
+  {
+    "col": 14,
+    "line": 1,
+    "type": "RPAREN",
+    "value": ")"
+  },
+  {
+    "col": 16,
+    "line": 1,
+    "type": "IDENT",
+    "value": "ripgrep"
+  },
+  {
+    "col": 24,
+    "line": 1,
+    "type": "IDENT",
+    "value": "fd"
+  },
+  {
+    "col": 26,
+    "line": 1,
+    "type": "SEMI",
+    "value": ";"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]

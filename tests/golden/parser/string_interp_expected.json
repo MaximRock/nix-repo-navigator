@@ -1,0 +1,22 @@
+{
+  "parts": [
+    {
+      "type": "Literal",
+      "value": "Hello ",
+      "value_type": "string"
+    },
+    {
+      "base": null,
+      "path": [
+        "name"
+      ],
+      "type": "Select"
+    },
+    {
+      "type": "Literal",
+      "value": "!",
+      "value_type": "string"
+    }
+  ],
+  "type": "Interpolation"
+}

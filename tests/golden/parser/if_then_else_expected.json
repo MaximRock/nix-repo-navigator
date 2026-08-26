@@ -1,0 +1,20 @@
+{
+  "cond": {
+    "base": null,
+    "path": [
+      "enabled"
+    ],
+    "type": "Select"
+  },
+  "else": {
+    "type": "Literal",
+    "value": "no",
+    "value_type": "string"
+  },
+  "then": {
+    "type": "Literal",
+    "value": "yes",
+    "value_type": "string"
+  },
+  "type": "IfThenElse"
+}

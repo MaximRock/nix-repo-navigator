@@ -1,0 +1,32 @@
+{
+  "attrs": [
+    {
+      "name": "a",
+      "value": {
+        "attrs": [
+          {
+            "name": "b",
+            "value": {
+              "attrs": [
+                {
+                  "name": "c",
+                  "value": {
+                    "type": "Literal",
+                    "value": "1",
+                    "value_type": "int"
+                  }
+                }
+              ],
+              "recursive": false,
+              "type": "AttrSet"
+            }
+          }
+        ],
+        "recursive": false,
+        "type": "AttrSet"
+      }
+    }
+  ],
+  "recursive": false,
+  "type": "AttrSet"
+}

@@ -1,0 +1,26 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "PATH",
+    "value": "./modules/test.nix"
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "PATH",
+    "value": "/absolute/path"
+  },
+  {
+    "col": 1,
+    "line": 3,
+    "type": "PATH",
+    "value": "<nixpkgs>"
+  },
+  {
+    "col": 1,
+    "line": 4,
+    "type": "EOF",
+    "value": ""
+  }
+]

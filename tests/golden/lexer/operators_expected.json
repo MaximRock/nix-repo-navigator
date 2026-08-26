@@ -1,0 +1,98 @@
+[
+  {
+    "col": 1,
+    "line": 1,
+    "type": "UPDATE",
+    "value": "//"
+  },
+  {
+    "col": 4,
+    "line": 1,
+    "type": "IMPL",
+    "value": "->"
+  },
+  {
+    "col": 7,
+    "line": 1,
+    "type": "AND",
+    "value": "&&"
+  },
+  {
+    "col": 10,
+    "line": 1,
+    "type": "OR",
+    "value": "||"
+  },
+  {
+    "col": 14,
+    "line": 1,
+    "type": "OR",
+    "value": "||"
+  },
+  {
+    "col": 17,
+    "line": 1,
+    "type": "AND",
+    "value": "&&"
+  },
+  {
+    "col": 20,
+    "line": 1,
+    "type": "NOT",
+    "value": "!"
+  },
+  {
+    "col": 22,
+    "line": 1,
+    "type": "QUESTION",
+    "value": "?"
+  },
+  {
+    "col": 24,
+    "line": 1,
+    "type": "CONCAT",
+    "value": "++"
+  },
+  {
+    "col": 27,
+    "line": 1,
+    "type": "LT",
+    "value": "<"
+  },
+  {
+    "col": 29,
+    "line": 1,
+    "type": "GT",
+    "value": ">"
+  },
+  {
+    "col": 31,
+    "line": 1,
+    "type": "LE",
+    "value": "<="
+  },
+  {
+    "col": 34,
+    "line": 1,
+    "type": "GE",
+    "value": ">="
+  },
+  {
+    "col": 37,
+    "line": 1,
+    "type": "EQEQ",
+    "value": "=="
+  },
+  {
+    "col": 40,
+    "line": 1,
+    "type": "NEQ",
+    "value": "!="
+  },
+  {
+    "col": 1,
+    "line": 2,
+    "type": "EOF",
+    "value": ""
+  }
+]
