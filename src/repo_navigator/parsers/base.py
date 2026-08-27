@@ -13,6 +13,8 @@ class BaseParser(ABC):
 
     language: str
     extensions: list[str]
+    tier: int = 0
+    enabled: bool = True
 
     @abstractmethod
     def parse(self, path: Path, content: str) -> ParseResult:

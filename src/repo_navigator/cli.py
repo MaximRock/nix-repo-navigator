@@ -32,17 +32,146 @@ def start(
 @app.command()
 def status(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
 ) -> None:
-    """Show graph size and mode (stub)."""
-    typer.echo(f"status: graph is empty, indexer not implemented yet (root={root or Path.cwd()})")
+    """Show graph size and generation."""
+    from repo_navigator.config import Config
+    from repo_navigator.graph.db import Database
+
+    cfg = Config(root=root or Path.cwd(), db_path=db_path)  # type: ignore[arg-type]
+    db_file = cfg.resolved_db_path
+    if not db_file.exists():
+        typer.echo(f"status: no DB at {db_file} (root={cfg.root})")
+        typer.echo("  nodes=0 edges=0 generation=0")
+        return
+    db = Database(str(db_file))
+    try:
+        db.init_db()
+        nodes = db.count_nodes()
+        edges = db.count_edges()
+        gen = db.get_generation_id()
+        typer.echo(f"status: root={cfg.root} db={db_file}")
+        typer.echo(f"  nodes={nodes} edges={edges} generation={gen}")
+    finally:
+        db.close()
 
 
 @app.command()
 def refresh(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
 ) -> None:
-    """Force a full rescan (stub)."""
-    typer.echo(f"refresh: rescan is not implemented yet (root={root or Path.cwd()})")
+    """Force a full rescan (alias for index)."""
+    _run_index(root or Path.cwd(), db_path)
+
+
+@app.command("index")
+def index_cmd(
+    path: Path = typer.Argument(Path("."), help="Repository root or file to index."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+) -> None:
+    """Index a repository (or single file) into the graph."""
+    _run_index(path, db_path)
+
+
+@dev_app.command("index")
+def dev_index(
+    path: Path = typer.Argument(Path("."), help="Repository root or file to index."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+) -> None:
+    """(dev) Index a repository (or single file) into the graph."""
+    _run_index(path, db_path)
+
+
+def _run_index(path: Path, db_path: Path | None) -> None:
+    from repo_navigator.config import Config
+    from repo_navigator.graph.db import Database
+    from repo_navigator.graph.nx_graph import NxGraph
+    from repo_navigator.indexer.scan import index_repo
+    from repo_navigator.parsers.registry import safe_parse
+    from repo_navigator.graph.builder import GraphBuilder
+
+    p = Path(path)
+    # Single file fast-path: index just that file
+    if p.is_file():
+        # Config root: try cwd if file is inside cwd, else parent
+        try:
+            cwd = Path.cwd().resolve()
+            if p.resolve().is_relative_to(cwd):
+                cfg_root = cwd
+                rel = p.resolve().relative_to(cwd).as_posix()
+            else:
+                cfg_root = p.parent.resolve()
+                rel = p.name
+        except Exception:
+            cfg_root = p.parent.resolve()
+            rel = p.name
+
+    # Ensure DB parent exists
+    def _ensure_db_dir(db_file: Path) -> None:
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if p.is_file():
+        # Single file fast-path: index just that file
+        try:
+            cwd = Path.cwd().resolve()
+            if p.resolve().is_relative_to(cwd):
+                cfg_root = cwd
+                rel = p.resolve().relative_to(cwd).as_posix()
+            else:
+                cfg_root = p.parent.resolve()
+                rel = p.name
+        except Exception:
+            cfg_root = p.parent.resolve()
+            rel = p.name
+
+        cfg = Config(root=cfg_root, db_path=db_path)  # type: ignore[arg-type]
+        db_file = cfg.resolved_db_path
+        _ensure_db_dir(db_file)
+        db = Database(str(db_file))
+        nx_graph = NxGraph()
+        try:
+            db.init_db()
+            existing_nodes = db.get_all_nodes()
+            existing_edges = db.get_all_edges()
+            if existing_nodes or existing_edges:
+                nx_graph.rebuild(nodes=existing_nodes, edges=existing_edges)
+            content = p.read_text(encoding="utf-8")
+            parse_result = safe_parse(Path(rel), content)
+            builder = GraphBuilder(db, nx_graph)
+            builder.build_file(rel, parse_result)
+            typer.echo(
+                f"indexed 1 files -> "
+                f"nodes={db.count_nodes()} edges={db.count_edges()} "
+                f"generation={db.get_generation_id()} db={db_file}"
+            )
+        finally:
+            db.close()
+        return
+
+    # Directory: full repo index
+    cfg_root = p.resolve()
+    cfg = Config(root=cfg_root, db_path=db_path)  # type: ignore[arg-type]
+    db_file = cfg.resolved_db_path
+    _ensure_db_dir(db_file)
+    db = Database(str(db_file))
+    nx_graph = NxGraph()
+    try:
+        db.init_db()
+        existing_nodes = db.get_all_nodes()
+        existing_edges = db.get_all_edges()
+        if existing_nodes or existing_edges:
+            nx_graph.rebuild(nodes=existing_nodes, edges=existing_edges)
+
+        stats = index_repo(cfg_root, db, nx_graph, config=cfg)
+        typer.echo(
+            f"indexed {stats['files']} files -> "
+            f"nodes={stats['nodes']} edges={stats['edges']} "
+            f"generation={stats['generation']} "
+            f"({stats['elapsed_ms']:.0f}ms) db={db_file}"
+        )
+    finally:
+        db.close()
 
 
 @dev_app.command("lex")

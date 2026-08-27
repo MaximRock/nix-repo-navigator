@@ -6,7 +6,7 @@
         "line": 0
       },
       "source": "nix:imports_chain.nix",
-      "target": "nix:./a.nix",
+      "target": "nix:a.nix",
       "type": "imports",
       "weight": 1.0
     },
@@ -16,7 +16,7 @@
         "line": 0
       },
       "source": "nix:imports_chain.nix",
-      "target": "nix:./b.nix",
+      "target": "nix:b.nix",
       "type": "imports",
       "weight": 1.0
     }

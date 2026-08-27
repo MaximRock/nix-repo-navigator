@@ -82,3 +82,54 @@ def test_dev_extract(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert '"nix_module"' in result.output
     assert '"imports"' in result.output
+
+
+def test_index_directory(tmp_path: Path) -> None:
+    (tmp_path / "a.nix").write_text("{ imports = [ ./b.nix ]; }")
+    (tmp_path / "b.nix").write_text("{ config.x = 1; }")
+    db_path = tmp_path / "test.db"
+    result = runner.invoke(app, ["index", str(tmp_path), "--db-path", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "indexed" in result.output.lower()
+    assert "nodes=" in result.output
+    # DB should exist and status should report
+    assert db_path.exists()
+    result2 = runner.invoke(app, ["status", "--root", str(tmp_path), "--db-path", str(db_path)])
+    assert result2.exit_code == 0
+    assert "nodes=" in result2.output
+
+
+def test_dev_index(tmp_path: Path) -> None:
+    (tmp_path / "a.nix").write_text("{ config.y = 2; }")
+    db_path = tmp_path / "dev.db"
+    result = runner.invoke(app, ["dev", "index", str(tmp_path), "--db-path", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "indexed" in result.output.lower()
+
+
+def test_index_single_file(tmp_path: Path) -> None:
+    f = tmp_path / "single.nix"
+    f.write_text("{ options.foo = lib.mkOption {}; }")
+    db_path = tmp_path / "single.db"
+    result = runner.invoke(app, ["index", str(f), "--db-path", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "1 files" in result.output
+
+
+def test_index_idempotent_generation(tmp_path: Path) -> None:
+    (tmp_path / "a.nix").write_text("{ config.a = 1; }")
+    db_path = tmp_path / "gen.db"
+    runner.invoke(app, ["index", str(tmp_path), "--db-path", str(db_path)])
+    from repo_navigator.graph.db import Database
+
+    db = Database(str(db_path))
+    db.init_db()
+    gen1 = db.get_generation_id()
+    db.close()
+
+    runner.invoke(app, ["index", str(tmp_path), "--db-path", str(db_path)])
+    db = Database(str(db_path))
+    db.init_db()
+    gen2 = db.get_generation_id()
+    db.close()
+    assert gen2 == gen1 + 1

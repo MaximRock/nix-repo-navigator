@@ -192,10 +192,15 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
 def _normalise_import(file_path: str, import_path: str) -> str:
     """Normalise an import path relative to the importing file."""
     if import_path.startswith("/") or import_path.startswith("./") or import_path.startswith("../"):
+        import posixpath
+
         parent = str(Path(file_path).parent)
-        if parent == ".":
-            return import_path
-        return str(Path(parent) / import_path)
+        joined = posixpath.join(parent, import_path)
+        norm = posixpath.normpath(joined)
+        # posixpath keeps leading "./" for "." parent case; strip it.
+        if norm.startswith("./"):
+            norm = norm[2:]
+        return norm
     return import_path
 
 

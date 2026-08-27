@@ -21,6 +21,7 @@ class NixParser(BaseParser):
 
     language = "nix"
     extensions = [".nix"]
+    tier = 0
 
     def parse(self, path: Path, content: str) -> ParseResult:
         try:
