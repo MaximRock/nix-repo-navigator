@@ -1,0 +1,44 @@
+{
+  "edges": [
+    {
+      "metadata": {},
+      "source": "nix:module_args.nix",
+      "target": "nix_function:module_args.nix:myLib",
+      "type": "passes_args",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:module_args.nix",
+      "target": "nix_function:module_args.nix:myFunc",
+      "type": "passes_args",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:module_args.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "module_args.nix",
+      "path": "module_args.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_function:module_args.nix:myLib",
+      "lang": "nix",
+      "metadata": {},
+      "name": "myLib",
+      "path": "module_args.nix",
+      "type": "nix_function"
+    },
+    {
+      "id": "nix_function:module_args.nix:myFunc",
+      "lang": "nix",
+      "metadata": {},
+      "name": "myFunc",
+      "path": "module_args.nix",
+      "type": "nix_function"
+    }
+  ]
+}

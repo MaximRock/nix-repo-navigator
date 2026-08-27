@@ -1,0 +1,2 @@
+{ config ? {}, lib ? {}, ... }:
+config.test

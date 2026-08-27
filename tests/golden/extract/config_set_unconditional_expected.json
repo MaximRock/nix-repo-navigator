@@ -1,0 +1,32 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": false
+      },
+      "source": "nix:config_set_unconditional.nix",
+      "target": "nix_option:services.foo.enable",
+      "type": "sets",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false
+      },
+      "source": "nix:config_set_unconditional.nix",
+      "target": "nix_option:services.foo.port",
+      "type": "sets",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:config_set_unconditional.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "config_set_unconditional.nix",
+      "path": "config_set_unconditional.nix",
+      "type": "nix_module"
+    }
+  ]
+}

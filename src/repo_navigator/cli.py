@@ -83,5 +83,16 @@ def dev_parse(
     typer.echo(json.dumps(tree, indent=2, default=str))
 
 
+@dev_app.command("extract")
+def dev_extract(path: Path) -> None:
+    """Parse a .nix file and print the extracted graph (nodes + edges)."""
+    from repo_navigator.parsers.nix_parser import NixParser
+
+    parser = NixParser()
+    source = path.read_text()
+    result = parser.parse(path, source)
+    typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+
+
 if __name__ == "__main__":
     app()

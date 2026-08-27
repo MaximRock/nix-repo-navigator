@@ -73,3 +73,12 @@ def test_dev_parse_via_instantiate_success(tmp_path: Path) -> None:
         result = runner.invoke(app, ["dev", "parse", "--via-instantiate", str(f)])
     assert result.exit_code == 0
     assert '"AST": 1' in result.output
+
+
+def test_dev_extract(tmp_path: Path) -> None:
+    f = tmp_path / "m.nix"
+    f.write_text("{ imports = [ ./a.nix ]; }")
+    result = runner.invoke(app, ["dev", "extract", str(f)])
+    assert result.exit_code == 0
+    assert '"nix_module"' in result.output
+    assert '"imports"' in result.output

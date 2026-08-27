@@ -1,0 +1,13 @@
+{
+  "edges": [],
+  "nodes": [
+    {
+      "id": "nix:dynamic_import.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "dynamic_import.nix",
+      "path": "dynamic_import.nix",
+      "type": "nix_module"
+    }
+  ]
+}

@@ -209,6 +209,9 @@ class _Lexer:
         if c in (".", "~") and n1 == "/":
             self._read_path()
             return
+        if c == "." and n1 == "." and self._peek(2) == "/":
+            self._read_path()
+            return
         if c == "/" and self._next_is_path_char():
             self._read_path()
             return
@@ -545,6 +548,13 @@ class _Lexer:
                 self._advance(3)
                 return
             if nxt == "":  # EOF after '' -> close
+                self._flush_string()
+                self._advance(2)
+                self.mode = "root"
+                return
+            # Lenient close: if `''` mid-line followed by a delimiter
+            # (`;  ,  }  )  ]  \n`), close the heredoc per common expectation.
+            if nxt in (";", ",", "}", ")", "]", "\n"):
                 self._flush_string()
                 self._advance(2)
                 self.mode = "root"

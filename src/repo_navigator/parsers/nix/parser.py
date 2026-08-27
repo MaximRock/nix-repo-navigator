@@ -327,6 +327,13 @@ class _Parser:
                 return formals
             return first.value
         if tok is not None and tok.type == TokenType.LBRACE:
+            # Если после { первый IDENT затем DOT — это attrset, не formals.
+            # Быстрая защита: сканируем без потребления.
+            first_inside = self._peek(1)
+            second_inside = self._peek(2)
+            if (first_inside is not None and first_inside.type == TokenType.IDENT and
+                    second_inside is not None and second_inside.type == TokenType.DOT):
+                raise self._error("expected function argument")
             formals = self._parse_formals()
             if (nxt := self._peek()) is not None and nxt.type == TokenType.AT:
                 self._next()
@@ -359,7 +366,7 @@ class _Parser:
                 raise self._error("expected formal name")
             name = self._next().value
             default: Expr | None = None
-            if (nxt := self._peek()) is not None and nxt.type == TokenType.EQ:
+            if (nxt := self._peek()) is not None and nxt.type == TokenType.QUESTION:
                 self._next()
                 default = self._parse_expr()
             fields.append(FormalArg(name=name, default=default))
@@ -464,6 +471,25 @@ class _Parser:
             break
         return e
 
+    def _parse_postfix_no_funcall(self) -> Expr:
+        """Parse a primary followed by attribute access, but NOT function application.
+
+        Used for list items where ``a b c`` should be separate items,
+        not nested function calls.
+        """
+        e = self._parse_primary()
+        while True:
+            tok = self._peek()
+            if tok is None or tok.type != TokenType.DOT:
+                break
+            self._next()
+            name = self._read_attr_segment()
+            if isinstance(e, Select) and e.base is None:
+                e = Select(base=None, path=e.path + [name])
+            else:
+                e = Select(base=e, path=[name])
+        return e
+
     # ---------------------------------------------------------------- primary
 
     def _parse_primary(self) -> Expr:
@@ -518,6 +544,12 @@ class _Parser:
 
         if tok.type == TokenType.IDENT:
             self._next()
+            if tok.value == "true":
+                return Literal(value=True, value_type="bool")
+            if tok.value == "false":
+                return Literal(value=False, value_type="bool")
+            if tok.value == "null":
+                return Literal(value=None, value_type="null")
             return Select(base=None, path=[tok.value])
 
         raise self._error(f"unexpected token {tok.type}")
@@ -546,7 +578,7 @@ class _Parser:
         self._expect(TokenType.LBRACK)
         items: list[Expr] = []
         while (tok := self._peek()) is not None and tok.type != TokenType.RBRACK:
-            items.append(self._parse_expr())
+            items.append(self._parse_postfix_no_funcall())
         self._expect(TokenType.RBRACK)
         return List(items=items)
 
@@ -565,6 +597,9 @@ class _Parser:
             if tok.type == TokenType.RBRACE:
                 break
             if tok.type == TokenType.KW_IN:
+                break
+            if tok.type == TokenType.EQ:
+                # EQ не может начинать attrpath — это разделитель, пусть вызывающий обработает.
                 break
             if tok.type == TokenType.KW_INHERIT:
                 attrs.append(self._parse_inherit())
@@ -607,8 +642,20 @@ class _Parser:
             self._next()
             return ("name", tok.value)
         if tok.type in (TokenType.STRING_DOUBLE, TokenType.STRING_HEREDOC):
+            # Строка с интерполяцией ("a${b}") токенизируется как STRING + INTERPOL_START + ...,
+            # поэтому если за строкой сразу идёт интерполяция — весь stringish это dyn-ключ.
+            if self._peek(1) is not None and self._peek(1).type == TokenType.INTERPOL_START:
+                expr = self._parse_stringish()
+                return ("dyn", expr.model_dump_json())
             self._next()
             return ("name", tok.value)
+        if tok.type == TokenType.INTERPOL_START:
+            # Может быть несколько интерполяций и строковых фрагментов:
+            #   "a${b}c" → STRING_DOUBLE("a") + INTERPOL_START + ... + STRING_DOUBLE("c"),
+            #   "${b}c"  → INTERPOL_START + ... + STRING_DOUBLE("c") (пустой префикс не эмитится).
+            # Используем _parse_stringish чтобы потребить всё.
+            expr = self._parse_stringish()
+            return ("dyn", expr.model_dump_json())
         if tok.type == TokenType.LBRACK:
             self._next()
             inner = self._parse_expr()
@@ -679,8 +726,8 @@ def parse(source: str) -> Expr:
     return _Parser(tokens).parse()
 
 
-def _dump(value: Any) -> Any:
-    """Recursively serialize AST nodes to plain dicts.
+def ast_to_dict(value: Any) -> Any:
+    """Recursively serialize an AST node (or any value) to a plain dict.
 
     pydantic's ``model_dump`` collapses ``Union["Expr", None]`` to the base
     schema (losing subclass fields), so we serialize by the *actual* type.
@@ -688,15 +735,15 @@ def _dump(value: Any) -> Any:
     if isinstance(value, BaseModel):
         out: dict[str, Any] = {}
         for name, fld in type(value).model_fields.items():
-            out[fld.alias or name] = _dump(getattr(value, name))
+            out[fld.alias or name] = ast_to_dict(getattr(value, name))
         return out
     if isinstance(value, list):
-        return [_dump(v) for v in value]
+        return [ast_to_dict(v) for v in value]
     if isinstance(value, dict):
-        return {k: _dump(v) for k, v in value.items()}
+        return {k: ast_to_dict(v) for k, v in value.items()}
     return value
 
 
 def parse_to_dict(source: str) -> dict:
     """Convenience for golden tests: parse and dump to a plain dict."""
-    return _dump(parse(source))
+    return ast_to_dict(parse(source))

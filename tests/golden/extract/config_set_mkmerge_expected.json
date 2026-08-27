@@ -1,0 +1,32 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": true
+      },
+      "source": "nix:config_set_mkmerge.nix",
+      "target": "nix_option:services.foo.enable",
+      "type": "sets",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": true
+      },
+      "source": "nix:config_set_mkmerge.nix",
+      "target": "nix_option:services.bar.enable",
+      "type": "sets",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:config_set_mkmerge.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "config_set_mkmerge.nix",
+      "path": "config_set_mkmerge.nix",
+      "type": "nix_module"
+    }
+  ]
+}

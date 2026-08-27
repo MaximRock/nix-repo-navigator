@@ -2,21 +2,18 @@
   "body": {
     "items": [
       {
-        "arg": {
-          "base": null,
-          "path": [
-            "fd"
-          ],
-          "type": "Select"
-        },
-        "func": {
-          "base": null,
-          "path": [
-            "ripgrep"
-          ],
-          "type": "Select"
-        },
-        "type": "FunctionCall"
+        "base": null,
+        "path": [
+          "ripgrep"
+        ],
+        "type": "Select"
+      },
+      {
+        "base": null,
+        "path": [
+          "fd"
+        ],
+        "type": "Select"
       }
     ],
     "type": "List"

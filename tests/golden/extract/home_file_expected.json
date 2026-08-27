@@ -1,0 +1,44 @@
+{
+  "edges": [
+    {
+      "metadata": {},
+      "source": "nix:home_file.nix",
+      "target": "file:.config/foo",
+      "type": "configures",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:home_file.nix",
+      "target": "file:.config/bar",
+      "type": "configures",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:home_file.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "home_file.nix",
+      "path": "home_file.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "file:.config/foo",
+      "lang": "nix",
+      "metadata": {},
+      "name": ".config/foo",
+      "path": null,
+      "type": "file"
+    },
+    {
+      "id": "file:.config/bar",
+      "lang": "nix",
+      "metadata": {},
+      "name": ".config/bar",
+      "path": null,
+      "type": "file"
+    }
+  ]
+}

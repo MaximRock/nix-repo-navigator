@@ -1,0 +1,23 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": true
+      },
+      "source": "nix:config_set_conditional.nix",
+      "target": "nix_option:services.foo.enable",
+      "type": "sets",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:config_set_conditional.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "config_set_conditional.nix",
+      "path": "config_set_conditional.nix",
+      "type": "nix_module"
+    }
+  ]
+}

@@ -5,17 +5,14 @@
       "value": {
         "items": [
           {
-            "arg": {
-              "type": "Literal",
-              "value": "./b.nix",
-              "value_type": "path"
-            },
-            "func": {
-              "type": "Literal",
-              "value": "./a.nix",
-              "value_type": "path"
-            },
-            "type": "FunctionCall"
+            "type": "Literal",
+            "value": "./a.nix",
+            "value_type": "path"
+          },
+          {
+            "type": "Literal",
+            "value": "./b.nix",
+            "value_type": "path"
           }
         ],
         "type": "List"

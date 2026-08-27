@@ -1,0 +1,176 @@
+{
+  "bindings": [
+    {
+      "name": "args",
+      "value": {
+        "base": null,
+        "path": [
+          "args"
+        ],
+        "type": "Select"
+      }
+    }
+  ],
+  "body": {
+    "arg": {
+      "ellipsis": true,
+      "fields": [
+        {
+          "default": null,
+          "name": "config"
+        },
+        {
+          "default": null,
+          "name": "lib"
+        },
+        {
+          "default": null,
+          "name": "pkgs"
+        }
+      ]
+    },
+    "body": {
+      "attrs": [
+        {
+          "name": "imports",
+          "value": {
+            "items": [
+              {
+                "type": "Literal",
+                "value": "./module.nix",
+                "value_type": "path"
+              }
+            ],
+            "type": "List"
+          }
+        },
+        {
+          "name": "options",
+          "value": {
+            "attrs": [
+              {
+                "name": "test",
+                "value": {
+                  "attrs": [
+                    {
+                      "name": "enable",
+                      "value": {
+                        "arg": {
+                          "type": "Literal",
+                          "value": "test",
+                          "value_type": "string"
+                        },
+                        "func": {
+                          "base": null,
+                          "path": [
+                            "lib",
+                            "mkEnableOption"
+                          ],
+                          "type": "Select"
+                        },
+                        "type": "FunctionCall"
+                      }
+                    }
+                  ],
+                  "recursive": false,
+                  "type": "AttrSet"
+                }
+              }
+            ],
+            "recursive": false,
+            "type": "AttrSet"
+          }
+        },
+        {
+          "name": "config",
+          "value": {
+            "arg": {
+              "attrs": [
+                {
+                  "name": "\u2026",
+                  "value": {
+                    "reason": "dynamic_key",
+                    "source": "\u2026",
+                    "type": "UnresolvedExpr"
+                  }
+                },
+                {
+                  "name": "nested",
+                  "value": {
+                    "attrs": [
+                      {
+                        "name": "a",
+                        "value": {
+                          "attrs": [
+                            {
+                              "name": "b",
+                              "value": {
+                                "attrs": [
+                                  {
+                                    "name": "c",
+                                    "value": {
+                                      "type": "Literal",
+                                      "value": "2",
+                                      "value_type": "int"
+                                    }
+                                  }
+                                ],
+                                "recursive": false,
+                                "type": "AttrSet"
+                              }
+                            }
+                          ],
+                          "recursive": false,
+                          "type": "AttrSet"
+                        }
+                      }
+                    ],
+                    "recursive": false,
+                    "type": "AttrSet"
+                  }
+                }
+              ],
+              "recursive": false,
+              "type": "AttrSet"
+            },
+            "func": {
+              "base": {
+                "base": {
+                  "arg": {
+                    "base": null,
+                    "path": [
+                      "config"
+                    ],
+                    "type": "Select"
+                  },
+                  "func": {
+                    "base": null,
+                    "path": [
+                      "lib",
+                      "mkIf"
+                    ],
+                    "type": "Select"
+                  },
+                  "type": "FunctionCall"
+                },
+                "path": [
+                  "test"
+                ],
+                "type": "Select"
+              },
+              "path": [
+                "enable"
+              ],
+              "type": "Select"
+            },
+            "type": "FunctionCall"
+          }
+        }
+      ],
+      "recursive": false,
+      "type": "AttrSet"
+    },
+    "type": "Function"
+  },
+  "type": "LetIn"
+}

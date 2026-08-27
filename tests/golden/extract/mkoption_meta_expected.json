@@ -1,0 +1,54 @@
+{
+  "edges": [
+    {
+      "metadata": {},
+      "source": "nix:mkoption_meta.nix",
+      "target": "nix_option:services.foo.enable",
+      "type": "declares",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:mkoption_meta.nix",
+      "target": "nix_option:services.foo.port",
+      "type": "declares",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:mkoption_meta.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "mkoption_meta.nix",
+      "path": "mkoption_meta.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_option:services.foo.enable",
+      "lang": "nix",
+      "metadata": {
+        "default": "False",
+        "description": "Whether to enable foo.",
+        "example": "True",
+        "opt_type": "types.bool"
+      },
+      "name": "services.foo.enable",
+      "path": null,
+      "type": "nix_option"
+    },
+    {
+      "id": "nix_option:services.foo.port",
+      "lang": "nix",
+      "metadata": {
+        "default": "8080",
+        "description": "Port for foo.",
+        "example": "",
+        "opt_type": "types.port"
+      },
+      "name": "services.foo.port",
+      "path": null,
+      "type": "nix_option"
+    }
+  ]
+}

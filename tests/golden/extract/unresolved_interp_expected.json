@@ -1,0 +1,13 @@
+{
+  "edges": [],
+  "nodes": [
+    {
+      "id": "nix:unresolved_interp.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "unresolved_interp.nix",
+      "path": "unresolved_interp.nix",
+      "type": "nix_module"
+    }
+  ]
+}

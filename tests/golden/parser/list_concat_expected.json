@@ -2,17 +2,14 @@
   "left": {
     "items": [
       {
-        "arg": {
-          "type": "Literal",
-          "value": "2",
-          "value_type": "int"
-        },
-        "func": {
-          "type": "Literal",
-          "value": "1",
-          "value_type": "int"
-        },
-        "type": "FunctionCall"
+        "type": "Literal",
+        "value": "1",
+        "value_type": "int"
+      },
+      {
+        "type": "Literal",
+        "value": "2",
+        "value_type": "int"
       }
     ],
     "type": "List"
@@ -21,17 +18,14 @@
   "right": {
     "items": [
       {
-        "arg": {
-          "type": "Literal",
-          "value": "4",
-          "value_type": "int"
-        },
-        "func": {
-          "type": "Literal",
-          "value": "3",
-          "value_type": "int"
-        },
-        "type": "FunctionCall"
+        "type": "Literal",
+        "value": "3",
+        "value_type": "int"
+      },
+      {
+        "type": "Literal",
+        "value": "4",
+        "value_type": "int"
       }
     ],
     "type": "List"

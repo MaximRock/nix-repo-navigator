@@ -1,0 +1,13 @@
+{
+  "edges": [],
+  "nodes": [
+    {
+      "id": "nix:flake_parts.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "flake_parts.nix",
+      "path": "flake_parts.nix",
+      "type": "nix_module"
+    }
+  ]
+}

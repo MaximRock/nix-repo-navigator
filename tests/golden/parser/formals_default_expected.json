@@ -1,0 +1,32 @@
+{
+  "arg": {
+    "ellipsis": true,
+    "fields": [
+      {
+        "default": {
+          "attrs": [],
+          "recursive": false,
+          "type": "AttrSet"
+        },
+        "name": "config"
+      },
+      {
+        "default": {
+          "attrs": [],
+          "recursive": false,
+          "type": "AttrSet"
+        },
+        "name": "lib"
+      }
+    ]
+  },
+  "body": {
+    "base": null,
+    "path": [
+      "config",
+      "test"
+    ],
+    "type": "Select"
+  },
+  "type": "Function"
+}

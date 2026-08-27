@@ -1,0 +1,48 @@
+{
+  "edges": [
+    {
+      "metadata": {},
+      "source": "nix:specialisation.nix",
+      "target": "nix_module:specialisation.nix::specialisation.desktop",
+      "type": "specialises",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:specialisation.nix",
+      "target": "nix_module:specialisation.nix::specialisation.headless",
+      "type": "specialises",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:specialisation.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "specialisation.nix",
+      "path": "specialisation.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_module:specialisation.nix::specialisation.desktop",
+      "lang": "nix",
+      "metadata": {
+        "specialisation": "desktop"
+      },
+      "name": "specialisation.desktop",
+      "path": "specialisation.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_module:specialisation.nix::specialisation.headless",
+      "lang": "nix",
+      "metadata": {
+        "specialisation": "headless"
+      },
+      "name": "specialisation.headless",
+      "path": "specialisation.nix",
+      "type": "nix_module"
+    }
+  ]
+}

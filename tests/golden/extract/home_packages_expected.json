@@ -1,0 +1,44 @@
+{
+  "edges": [
+    {
+      "metadata": {},
+      "source": "nix:home_packages.nix",
+      "target": "package:pkgs.ripgrep",
+      "type": "uses_package",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:home_packages.nix",
+      "target": "package:pkgs.fd",
+      "type": "uses_package",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:home_packages.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "home_packages.nix",
+      "path": "home_packages.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "package:pkgs.ripgrep",
+      "lang": "nix",
+      "metadata": {},
+      "name": "pkgs.ripgrep",
+      "path": null,
+      "type": "package_ref"
+    },
+    {
+      "id": "package:pkgs.fd",
+      "lang": "nix",
+      "metadata": {},
+      "name": "pkgs.fd",
+      "path": null,
+      "type": "package_ref"
+    }
+  ]
+}

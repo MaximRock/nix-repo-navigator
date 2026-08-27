@@ -1,0 +1,34 @@
+{
+  "edges": [
+    {
+      "metadata": {},
+      "source": "nix:mkoption_simple.nix",
+      "target": "nix_option:services.foo.enable",
+      "type": "declares",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:mkoption_simple.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "mkoption_simple.nix",
+      "path": "mkoption_simple.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_option:services.foo.enable",
+      "lang": "nix",
+      "metadata": {
+        "default": "",
+        "description": "",
+        "example": "",
+        "opt_type": "types.bool"
+      },
+      "name": "services.foo.enable",
+      "path": null,
+      "type": "nix_option"
+    }
+  ]
+}

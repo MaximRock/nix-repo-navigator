@@ -1,5 +1,5 @@
 {
   "type": "Literal",
-  "value": "line1 ${var} line2\n",
+  "value": "line1 ${var} line2",
   "value_type": "string"
 }

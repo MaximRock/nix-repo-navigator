@@ -1,0 +1,24 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": false,
+        "priority": "default"
+      },
+      "source": "nix:mkdefault_priority.nix",
+      "target": "nix_option:x",
+      "type": "sets",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:mkdefault_priority.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "mkdefault_priority.nix",
+      "path": "mkdefault_priority.nix",
+      "type": "nix_module"
+    }
+  ]
+}
