@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -83,36 +84,40 @@ def dev_index(
     _run_index(path, db_path)
 
 
+@app.command("watch")
+def watch_cmd(
+    path: Path = typer.Argument(Path("."), help="Repository root to watch."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+) -> None:
+    """Watch a repository for changes and incrementally update the graph."""
+    asyncio.run(_run_watch(path, db_path))
+
+
+@dev_app.command("watch")
+def dev_watch(
+    path: Path = typer.Argument(Path("."), help="Repository root to watch."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+) -> None:
+    """(dev) Watch a repository for changes."""
+    asyncio.run(_run_watch(path, db_path))
+
+
+def _ensure_db_dir(db_file: Path) -> None:
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+
+
 def _run_index(path: Path, db_path: Path | None) -> None:
     from repo_navigator.config import Config
+    from repo_navigator.graph.builder import GraphBuilder
     from repo_navigator.graph.db import Database
     from repo_navigator.graph.nx_graph import NxGraph
     from repo_navigator.indexer.scan import index_repo
     from repo_navigator.parsers.registry import safe_parse
-    from repo_navigator.graph.builder import GraphBuilder
 
     p = Path(path)
-    # Single file fast-path: index just that file
-    if p.is_file():
-        # Config root: try cwd if file is inside cwd, else parent
-        try:
-            cwd = Path.cwd().resolve()
-            if p.resolve().is_relative_to(cwd):
-                cfg_root = cwd
-                rel = p.resolve().relative_to(cwd).as_posix()
-            else:
-                cfg_root = p.parent.resolve()
-                rel = p.name
-        except Exception:
-            cfg_root = p.parent.resolve()
-            rel = p.name
 
-    # Ensure DB parent exists
-    def _ensure_db_dir(db_file: Path) -> None:
-        db_file.parent.mkdir(parents=True, exist_ok=True)
-
+    # Single file fast-path
     if p.is_file():
-        # Single file fast-path: index just that file
         try:
             cwd = Path.cwd().resolve()
             if p.resolve().is_relative_to(cwd):
@@ -172,6 +177,71 @@ def _run_index(path: Path, db_path: Path | None) -> None:
         )
     finally:
         db.close()
+
+
+async def _run_watch(path: Path, db_path: Path | None) -> None:
+    from repo_navigator.config import Config
+    from repo_navigator.graph.builder import GraphBuilder
+    from repo_navigator.graph.db import Database
+    from repo_navigator.graph.nx_graph import NxGraph
+    from repo_navigator.indexer.event_router import EventRouter
+    from repo_navigator.indexer.update_engine import UpdateEngine
+    from repo_navigator.watcher.filesystem import RepoWatcher
+
+    root = Path(path).resolve()
+    cfg = Config(root=root, db_path=db_path)  # type: ignore[arg-type]
+    db_file = cfg.resolved_db_path
+    _ensure_db_dir(db_file)
+
+    db = Database(str(db_file))
+    db.init_db()
+    nx_graph = NxGraph()
+    # Preload existing graph
+    nodes = db.get_all_nodes()
+    edges = db.get_all_edges()
+    if nodes or edges:
+        nx_graph.rebuild(nodes=nodes, edges=edges)
+
+    builder = GraphBuilder(db, nx_graph)
+    update_engine = UpdateEngine(db, nx_graph, builder=builder, root=root)
+    event_router = EventRouter(debounce_ms=float(cfg.timeouts.get("debounce_ms", 500)))
+
+    watcher = RepoWatcher(root, event_router, config=cfg)
+    mode = watcher.start(loop=asyncio.get_running_loop())
+    typer.echo(f"watch: {root} (mode={mode}, debounce={cfg.timeouts.get('debounce_ms', 500)}ms) db={db_file}")
+    typer.echo("Press Ctrl+C to stop.")
+
+    # Initial index if DB is empty
+    if db.count_nodes() == 0:
+        from repo_navigator.indexer.scan import index_repo
+
+        stats = index_repo(root, db, nx_graph, config=cfg)
+        typer.echo(f"initial index: {stats['files']} files, {stats['nodes']} nodes")
+
+    try:
+        while True:
+            batch = await event_router.queue.get()
+            for file_path in batch:
+                p = Path(file_path)
+                # file_path may be absolute (watcher) or relative; normalise
+                if not p.is_absolute():
+                    p = root / file_path
+                if p.exists():
+                    result = update_engine.process_file(p)
+                    typer.echo(f"watch: {p} -> {result['reason']} affected={result['affected']}")
+                else:
+                    # Deleted
+                    result = update_engine.process_deleted_file(file_path)
+                    typer.echo(f"watch: deleted {file_path} -> {result['reason']}")
+            event_router.queue.task_done()
+    except asyncio.CancelledError:
+        pass
+    except KeyboardInterrupt:
+        pass
+    finally:
+        watcher.stop()
+        db.close()
+        typer.echo("watch: stopped")
 
 
 @dev_app.command("lex")

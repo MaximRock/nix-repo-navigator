@@ -133,3 +133,15 @@ def test_index_idempotent_generation(tmp_path: Path) -> None:
     gen2 = db.get_generation_id()
     db.close()
     assert gen2 == gen1 + 1
+
+
+def test_watch_help() -> None:
+    result = runner.invoke(app, ["watch", "--help"])
+    assert result.exit_code == 0
+    assert "watch" in result.output.lower()
+
+
+def test_dev_watch_help() -> None:
+    result = runner.invoke(app, ["dev", "watch", "--help"])
+    assert result.exit_code == 0
+    assert "watch" in result.output.lower()
