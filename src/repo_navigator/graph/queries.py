@@ -546,3 +546,49 @@ class QueryEngine:
             root = root.parent
         index_repo(root, self.db, self.nx_graph, config=self.config)
         return self.status()
+
+    # ---------------------------------------------------------------- flake inputs
+
+    def list_flake_inputs(self) -> list[dict[str, str]]:
+        """List flake inputs from ``flake.lock`` (via DB)."""
+
+        def _compute() -> list[dict[str, str]]:
+            return self.db.get_flake_inputs()
+
+        return self._cached(("list_flake_inputs",), _compute)
+
+    def get_flake_input(self, name: str) -> dict[str, str] | None:
+        """Get a single flake input by name."""
+
+        def _compute() -> dict[str, str] | None:
+            for inp in self.db.get_flake_inputs():
+                if inp["name"] == name:
+                    return inp
+            return None
+
+        return self._cached(("get_flake_input", name), _compute)
+
+    # ---------------------------------------------------------------- packages (mock)
+
+    def list_packages(self, query: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+        """List packages from ``package_index`` (mock)."""
+
+        def _compute() -> list[dict[str, Any]]:
+            pkgs = self.db.get_packages()
+            if query:
+                q = query.lower()
+                pkgs = [p for p in pkgs if q in p["attribute"].lower() or q in p["name"].lower()]
+            return pkgs[:limit]
+
+        return self._cached(("list_packages", query, limit), _compute)
+
+    def get_package(self, attribute: str) -> dict[str, Any] | None:
+        """Get a single package by attribute."""
+
+        def _compute() -> dict[str, Any] | None:
+            for pkg in self.db.get_packages():
+                if pkg["attribute"] == attribute:
+                    return pkg
+            return None
+
+        return self._cached(("get_package", attribute), _compute)

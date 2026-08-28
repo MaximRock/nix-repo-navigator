@@ -143,6 +143,18 @@ def index_repo(
     # builder expects list[tuple[Path|str, ParseResult]]
     builder.build_all([(Path(p), pr) for p, pr in items])  # type: ignore[arg-type]
 
+    # 5. Flake inputs (if flake.lock exists)
+    _index_flake_inputs(root, db, nx_graph)
+
+    # 6. Package index (mock, from package_ref nodes)
+    try:
+        from repo_navigator.nix.package_index import PackageIndexBuilder
+
+        pkg_builder = PackageIndexBuilder(db, root=root)
+        pkg_builder.refresh()
+    except Exception:
+        log.debug("package index refresh failed", exc_info=True)
+
     elapsed_ms = (time.monotonic() - start) * 1000
     return {
         "files": len(items),
@@ -151,6 +163,75 @@ def index_repo(
         "generation": db.get_generation_id(),
         "elapsed_ms": elapsed_ms,
     }
+
+
+def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
+    """Parse ``flake.lock`` and upsert flake inputs + graph nodes."""
+    lock_path = root / "flake.lock" if root.is_dir() else root.parent / "flake.lock"
+    if not lock_path.is_file():
+        # Also try root itself if it's a file's parent already checked
+        alt = Path(root).resolve().parent / "flake.lock" if Path(root).is_file() else None
+        if alt is None or not alt.is_file():
+            return
+        lock_path = alt
+    try:
+        from repo_navigator.parsers.nix.flake_parser import parse_flake_lock
+
+        inputs = parse_flake_lock(lock_path)
+    except Exception:
+        log.debug("Failed to parse flake.lock at %s", lock_path, exc_info=True)
+        return
+
+    # Upsert DB and create graph nodes
+    from repo_navigator.models.nodes import Node, NodeType
+
+    for inp in inputs:
+        try:
+            db.upsert_flake_input(inp.name, inp.url or "", inp.rev or "")
+        except Exception:
+            log.debug("upsert_flake_input failed for %s", inp.name, exc_info=True)
+        # Create graph node for flake_input
+        node_id = f"flake_input:{inp.name}"
+        # Avoid duplicate if already exists
+        if db.get_node(node_id) is None:
+            node = Node(
+                id=node_id,
+                type=NodeType.flake_input,
+                name=inp.name,
+                path=None,
+                lang="nix",
+                metadata={"url": inp.url or "", "rev": inp.rev or "", "type": inp.type or ""},
+            )
+            try:
+                db.upsert_node(node)
+                nx_graph.apply_delta(added_nodes=[node])
+            except Exception:
+                log.debug("Failed to upsert flake_input node %s", node_id, exc_info=True)
+        else:
+            # Update existing node's metadata
+            existing = db.get_node(node_id)
+            if existing is not None:
+                existing.metadata = {"url": inp.url or "", "rev": inp.rev or "", "type": inp.type or ""}
+                try:
+                    db.upsert_node(existing)
+                    nx_graph.apply_delta(added_nodes=[existing])
+                except Exception:
+                    pass
+    # Purge stale flake inputs (those in DB but not in current lock)
+    try:
+        existing_inputs = {row["name"] for row in db._conn.execute("SELECT name FROM flake_inputs").fetchall()}
+        current_names = {inp.name for inp in inputs}
+        stale = existing_inputs - current_names
+        for name in stale:
+            try:
+                with db._lock, db.transaction():
+                    db._conn.execute("DELETE FROM flake_inputs WHERE name=?", (name,))
+                    db._conn.execute("DELETE FROM nodes WHERE id=?", (f"flake_input:{name}",))
+                nx_graph.apply_delta(removed_node_ids=[f"flake_input:{name}"])
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _purge_paths(db: Database, nx_graph: NxGraph, stale_paths: set[str | None]) -> None:

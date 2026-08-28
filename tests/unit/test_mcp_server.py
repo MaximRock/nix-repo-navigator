@@ -54,6 +54,9 @@ async def test_mcp_server_has_11_tools() -> None:
         "repo_navigator_impact_analysis",
         "repo_navigator_status",
         "repo_navigator_refresh",
+        "repo_navigator_list_flake_inputs",
+        "repo_navigator_list_packages",
+        "repo_navigator_get_package",
     }
     assert names == expected
 

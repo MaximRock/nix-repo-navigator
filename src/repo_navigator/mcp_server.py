@@ -242,6 +242,45 @@ def create_mcp_server(
         result = engine.refresh()
         return result.model_dump(mode="json")
 
+    @server.tool()
+    def repo_navigator_list_flake_inputs() -> list[dict[str, Any]]:
+        """List flake inputs from flake.lock.
+
+        Returns:
+            List of dicts with ``name``, ``url`` and ``rev``.
+        """
+        return engine.list_flake_inputs()
+
+    @server.tool()
+    def repo_navigator_list_packages(
+        query: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List packages from package_index (mock).
+
+        Args:
+            query: Filter substring (attribute or name).
+            limit: Max results (default 50).
+
+        Returns:
+            List of package dicts.
+        """
+        return engine.list_packages(query=query, limit=limit)
+
+    @server.tool()
+    def repo_navigator_get_package(attribute: str) -> dict[str, Any] | None:
+        """Get a single package by attribute.
+
+        Args:
+            attribute: Package attribute (e.g. ``ripgrep`` or ``pkgs.ripgrep``).
+
+        Returns:
+            Package dict or None if not found.
+        """
+        result = engine.get_package(attribute)
+        if result is None:
+            raise ToolError(f"package not found: {attribute}")
+        return result
+
     return server
 
 

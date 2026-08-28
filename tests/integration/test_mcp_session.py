@@ -80,9 +80,9 @@ async def test_mcp_tools_list_schema() -> None:
     engine, _, _ = _setup_repo()
     server = create_mcp_server(engine=engine)
     tools = await server.list_tools()
-    # Check all 11 tools present
+    # Check all 14 tools present (11 + flake + 2 packages)
     names = {t.name for t in tools}
-    assert len(names) == 11
+    assert len(names) == 14
     # Check schemas: each tool should have input_schema
     for tool in tools:
         # MCP Tool model uses snake_case in Python, camelCase in JSON

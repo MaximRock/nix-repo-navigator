@@ -466,6 +466,54 @@ def query_status(
         db.close()
 
 
+@query_app.command("flake-inputs")
+def query_flake_inputs(
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """List flake inputs from flake.lock."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        results = engine.list_flake_inputs()
+        typer.echo(json.dumps(results, indent=2, default=str))
+    finally:
+        db.close()
+
+
+@query_app.command("packages")
+def query_packages(
+    query: str | None = typer.Argument(None, help="Filter query (attribute substring)"),
+    limit: int = typer.Option(50, help="Max results"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """List packages from package_index (mock)."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        results = engine.list_packages(query=query, limit=limit)
+        typer.echo(json.dumps(results, indent=2, default=str))
+    finally:
+        db.close()
+
+
+@query_app.command("package")
+def query_package(
+    attribute: str = typer.Argument(..., help="Package attribute (e.g. ripgrep)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Get a single package by attribute."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.get_package(attribute)
+        if result is None:
+            typer.echo(f"package not found: {attribute}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(json.dumps(result, indent=2, default=str))
+    finally:
+        db.close()
+
+
 @dev_app.command("lex")
 def dev_lex(path: Path) -> None:
     """Tokenize a .nix file and print the token table."""

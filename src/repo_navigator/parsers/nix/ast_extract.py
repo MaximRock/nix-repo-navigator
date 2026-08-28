@@ -606,6 +606,26 @@ def _process_home(
             _process_home_file(attr.value, result)
         elif attr.name == "packages":
             _process_home_packages(attr.value, result)
+        elif attr.name == "sessionVariables" and isinstance(attr.value, AttrSet):
+            for var_attr in attr.value.attrs:
+                if isinstance(var_attr.name, str):
+                    result.configs.append(
+                        ConfigSet(
+                            attrpath=f"home.sessionVariables.{var_attr.name}",
+                            value_expr=ast_to_dict(var_attr.value) if var_attr.value else None,
+                            conditional=conditional,
+                        )
+                    )
+        elif attr.name == "activation" and isinstance(attr.value, AttrSet):
+            for act_attr in attr.value.attrs:
+                if isinstance(act_attr.name, str):
+                    result.configs.append(
+                        ConfigSet(
+                            attrpath=f"home.activation.{act_attr.name}",
+                            value_expr=ast_to_dict(act_attr.value) if act_attr.value else None,
+                            conditional=conditional,
+                        )
+                    )
 
 
 def _process_home_file(attrs: AttrSet, result: ExtractedNix) -> None:
@@ -647,7 +667,7 @@ def _process_xdg(
     for attr in value.attrs:
         if isinstance(attr.name, Inherit) or not isinstance(attr.name, str):
             continue
-        if attr.name == "configFile" and isinstance(attr.value, AttrSet):
+        if attr.name in ("configFile", "dataFile") and isinstance(attr.value, AttrSet):
             _process_home_file(attr.value, result)
 
 
@@ -662,6 +682,16 @@ def _process_programs(
         ):
             continue
         if not isinstance(prog_attr.value, AttrSet):
+            # Programs may be enabled via boolean: programs.git.enable = true;
+            # In that case prog_attr.value is Literal (bool) - treat as enable
+            if isinstance(prog_attr.value, Literal):
+                result.configs.append(
+                    ConfigSet(
+                        attrpath=f"programs.{prog_attr.name}.enable",
+                        value_expr=ast_to_dict(prog_attr.value),
+                        conditional=conditional,
+                    )
+                )
             continue
         for field_attr in prog_attr.value.attrs:
             if isinstance(field_attr.name, str) and field_attr.name == "package":
@@ -678,6 +708,14 @@ def _process_programs(
                     result.packages.append(
                         PackageRef(attribute=str(field_attr.value.value))
                     )
+            elif isinstance(field_attr.name, str) and field_attr.name in ("enable", "enableCompletion"):
+                result.configs.append(
+                    ConfigSet(
+                        attrpath=f"programs.{prog_attr.name}.{field_attr.name}",
+                        value_expr=ast_to_dict(field_attr.value) if field_attr.value else None,
+                        conditional=conditional,
+                    )
+                )
             elif isinstance(field_attr.name, str) and field_attr.name == "extraConfig":
                 result.home_files.append(
                     HomeFile(

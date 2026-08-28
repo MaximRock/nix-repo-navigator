@@ -95,3 +95,31 @@ def test_query_observe_missing(tmp_path: Path) -> None:
     result = runner.invoke(app, ["query", "observe", "nix:missing.nix", "--root", str(tmp_path), "--db-path", str(db_path)])
     assert result.exit_code == 1
     assert "error" in result.output.lower()
+
+
+def test_query_packages(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    _setup_db(tmp_path, db_path)
+    # Manually insert a package
+    from repo_navigator.graph.db import Database
+
+    db = Database(str(db_path))
+    db.init_db()
+    db.upsert_package("pkgs.ripgrep", "ripgrep", "1.0", "/nix/store/ripgrep", {"desc": "x"})
+    db.close()
+    result = runner.invoke(app, ["query", "packages", "--root", str(tmp_path), "--db-path", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "ripgrep" in result.output
+
+
+def test_query_flake_inputs(tmp_path: Path) -> None:
+    import json
+
+    (tmp_path / "flake.lock").write_text(json.dumps({"nodes": {"root": {}, "nixpkgs": {"locked": {"rev": "abc", "url": "https://example.com"}}}, "version": 7}))
+    db_path = tmp_path / "test.db"
+    # Need at least one nix file to trigger index flake
+    (tmp_path / "a.nix").write_text("{ config.x = 1; }")
+    runner.invoke(app, ["index", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(app, ["query", "flake-inputs", "--root", str(tmp_path), "--db-path", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert "nixpkgs" in result.output
