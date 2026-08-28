@@ -21,6 +21,13 @@ dev_app = typer.Typer(
 )
 app.add_typer(dev_app, name="dev")
 
+query_app = typer.Typer(
+    name="query",
+    help="Query the knowledge graph.",
+    no_args_is_help=True,
+)
+app.add_typer(query_app, name="query")
+
 
 @app.command()
 def start(
@@ -242,6 +249,203 @@ async def _run_watch(path: Path, db_path: Path | None) -> None:
         watcher.stop()
         db.close()
         typer.echo("watch: stopped")
+
+
+def _get_query_engine(
+    root: Path | None = None, db_path: Path | None = None
+):
+    from repo_navigator.config import Config
+    from repo_navigator.graph.db import Database
+    from repo_navigator.graph.nx_graph import NxGraph
+    from repo_navigator.graph.queries import QueryEngine
+
+    cfg = Config(root=root or Path.cwd(), db_path=db_path)  # type: ignore[arg-type]
+    db_file = cfg.resolved_db_path
+    db = Database(str(db_file))
+    db.init_db()
+    g = NxGraph()
+    nodes = db.get_all_nodes()
+    edges = db.get_all_edges()
+    if nodes or edges:
+        g.rebuild(nodes=nodes, edges=edges)
+    engine = QueryEngine(db, g, config=cfg)
+    return engine, db
+
+
+@query_app.command("observe")
+def query_observe(
+    node_id: str = typer.Argument(..., help="Node ID (e.g. nix:a.nix)"),
+    depth: int = typer.Option(1, help="Depth (max 20)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Observe direct neighbourhood of a node."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.observe(node_id, depth=depth)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except KeyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
+@query_app.command("hop")
+def query_hop(
+    node_id: str = typer.Argument(..., help="Node ID"),
+    relation: str | None = typer.Option(None, help="Edge type filter (e.g. imports)"),
+    depth: int = typer.Option(1, help="Depth (max 10)"),
+    width: int = typer.Option(10, help="Width per level"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """BFS hop with optional relation filter."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.hop(node_id, relation=relation, depth=depth, width=width)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
+@query_app.command("path")
+def query_path(
+    source: str = typer.Argument(..., help="Source node ID"),
+    target: str = typer.Argument(..., help="Target node ID"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Shortest path between two nodes."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.path(source, target)
+        typer.echo(json.dumps([r.model_dump() for r in result], indent=2, default=str))
+    finally:
+        db.close()
+
+
+@query_app.command("blast")
+def query_blast(
+    node_id: str = typer.Argument(..., help="Node ID"),
+    max_depth: int = typer.Option(5, help="Max depth (max 10)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Reverse BFS: who depends on this node."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.blast_radius(node_id, max_depth=max_depth)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
+@query_app.command("find")
+def query_find(
+    query: str = typer.Argument(..., help="Search query"),
+    lang: str | None = typer.Option(None, help="Language filter"),
+    fuzzy: bool = typer.Option(False, help="Fuzzy LIKE search"),
+    limit: int = typer.Option(10, help="Max results"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Full-text search for symbols."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        results = engine.find_symbol(query, lang=lang, fuzzy=fuzzy, limit=limit)
+        typer.echo(json.dumps([r.model_dump() for r in results], indent=2, default=str))
+    finally:
+        db.close()
+
+
+@query_app.command("summarize")
+def query_summarize(
+    path: str = typer.Argument(..., help="Module path (e.g. a.nix)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Summarize a module."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.summarize_module(path)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except KeyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
+@query_app.command("option")
+def query_option(
+    option_path: str = typer.Argument(..., help="Option path (e.g. services.foo.enable)"),
+    eval: bool = typer.Option(False, "--eval", help="Include evaluated value"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Introspect a Nix option."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.introspect_option(option_path, include_value=eval)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    finally:
+        db.close()
+
+
+@query_app.command("eval")
+def query_eval(
+    expr: str = typer.Argument(..., help="Nix expression"),
+    timeout: int = typer.Option(60, help="Timeout seconds (max 120)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Evaluate a Nix expression (cached)."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.eval_expression(expr, timeout=timeout)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
+@query_app.command("impact")
+def query_impact(
+    node_id: str = typer.Argument(..., help="Node ID"),
+    max_depth: int = typer.Option(5, help="Max depth"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Impact analysis for a node."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.impact_analysis(node_id, max_depth=max_depth)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    finally:
+        db.close()
+
+
+@query_app.command("status")
+def query_status(
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Show graph status (query engine)."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.status()
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    finally:
+        db.close()
 
 
 @dev_app.command("lex")
