@@ -32,9 +32,27 @@ app.add_typer(query_app, name="query")
 @app.command()
 def start(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
 ) -> None:
-    """Start the MCP server (stub)."""
-    typer.echo(f"start: MCP server is not implemented yet (root={root or Path.cwd()})")
+    """Start the MCP server (stdio transport)."""
+    import asyncio
+
+    from repo_navigator.config import Config
+    from repo_navigator.mcp_server import create_mcp_server
+
+    cfg = Config(root=root or Path.cwd(), db_path=db_path)  # type: ignore[arg-type]
+    server = create_mcp_server(config=cfg)
+
+    async def _run() -> None:
+        await server.run_stdio_async()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        typer.echo("MCP server stopped.")
+    except Exception as exc:
+        typer.echo(f"MCP server error: {exc}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command()

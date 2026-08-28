@@ -24,9 +24,11 @@ def test_refresh_runs() -> None:
 
 
 def test_start_runs() -> None:
-    result = runner.invoke(app, ["start"])
-    assert result.exit_code == 0
-    assert "not implemented" in result.output
+    from unittest.mock import AsyncMock, patch
+
+    with patch("repo_navigator.mcp_server.MCPServer.run_stdio_async", new_callable=AsyncMock):
+        result = runner.invoke(app, ["start", "--root", "/tmp"])
+        assert result.exit_code == 0
 
 
 def test_dev_lex(tmp_path: Path) -> None:
