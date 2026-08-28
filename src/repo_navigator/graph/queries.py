@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import shutil
-import subprocess
 import time
 from collections import deque
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +13,6 @@ from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.models.edges import Edge, EdgeType
 from repo_navigator.models.nodes import Node
-from repo_navigator.models.option_value import OptionValue, ValueStatus
 from repo_navigator.models.queries import (
     EvalResult,
     ImpactReport,
@@ -48,6 +43,16 @@ class QueryEngine:
         self._cache: dict[tuple, Any] = {}
         self._cache_generation: int | None = None
         self._start_time = time.monotonic()
+        # Eval cache (lazy, to avoid circular import at top)
+        from repo_navigator.nix.eval_cache import EvalCache
+
+        root = None
+        if config is not None and hasattr(config, "root"):
+            try:
+                root = Path(config.root)
+            except Exception:
+                root = None
+        self.eval_cache = EvalCache(db, root=root)
 
     # ------------------------------------------------------------------ cache
 
@@ -466,155 +471,18 @@ class QueryEngine:
     # ---------------------------------------------------------------- eval
 
     def eval_expression(self, expr: str, timeout: int = 60) -> EvalResult:
-        """Lazy ``nix eval`` with SQLite cache."""
+        """Lazy ``nix eval`` with SQLite cache (delegates to :class:`EvalCache`)."""
+        if timeout > 120:
+            raise ValueError("timeout must be <=120")
+        # Delegate to EvalCache which handles DB cache, flake rev and nix eval
+        result = self.eval_cache.get_or_eval(expr, timeout=timeout)
+        # Ensure generation_id is current (EvalCache uses db generation at call time,
+        # but our LRU cache is per generation, so we update)
         gen = self.db.get_generation_id()
-        cache_key = hashlib.sha256(expr.encode()).hexdigest()
-
-        def _compute() -> EvalResult:
-            # Check cache
-            cached = self.db.get_option_value(cache_key)
-            if cached is not None and cached.status == ValueStatus.ok:
-                return EvalResult(
-                    expr=expr,
-                    value_json=cached.value_json,
-                    status=cached.status,
-                    error=cached.error,
-                    cached=True,
-                    generation_id=gen,
-                )
-            if cached is not None and cached.status == ValueStatus.stale:
-                # stale still returned but will be recomputed below
-                pass
-
-            # Need to run nix eval
-            if timeout > 120:
-                raise ValueError("timeout must be <=120")
-            if shutil.which("nix") is None:
-                # No nix available
-                result = EvalResult(
-                    expr=expr,
-                    value_json=None,
-                    status=ValueStatus.unresolved,
-                    error="nix not found",
-                    cached=False,
-                    generation_id=gen,
-                )
-                # Cache as unresolved
-                self.db.upsert_option_value(
-                    OptionValue(
-                        key=cache_key,
-                        expr=expr,
-                        value_json=None,
-                        status=ValueStatus.unresolved,
-                        error="nix not found",
-                        computed_at=datetime.now(UTC),
-                    )
-                )
-                return result
-
-            try:
-                proc = subprocess.run(
-                    ["nix", "eval", "--json", "--impure", "--expr", expr],
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
-                if proc.returncode == 0:
-                    try:
-                        value = json.loads(proc.stdout) if proc.stdout.strip() else None
-                    except json.JSONDecodeError:
-                        value = proc.stdout.strip()
-                    result = EvalResult(
-                        expr=expr,
-                        value_json=value,
-                        status=ValueStatus.ok,
-                        error=None,
-                        cached=False,
-                        generation_id=gen,
-                    )
-                    self.db.upsert_option_value(
-                        OptionValue(
-                            key=cache_key,
-                            expr=expr,
-                            value_json=value,
-                            status=ValueStatus.ok,
-                            computed_at=datetime.now(UTC),
-                        )
-                    )
-                    return result
-                else:
-                    err = proc.stderr.strip() or f"nix eval failed with code {proc.returncode}"
-                    # Distinguish unresolved (e.g. infinite recursion) vs error?
-                    status = ValueStatus.error
-                    if "infinite recursion" in err.lower() or "attribute" in err.lower():
-                        status = ValueStatus.unresolved
-                    result = EvalResult(
-                        expr=expr,
-                        value_json=None,
-                        status=status,
-                        error=err,
-                        cached=False,
-                        generation_id=gen,
-                    )
-                    self.db.upsert_option_value(
-                        OptionValue(
-                            key=cache_key,
-                            expr=expr,
-                            value_json=None,
-                            status=status,
-                            error=err,
-                            computed_at=datetime.now(UTC),
-                        )
-                    )
-                    return result
-            except subprocess.TimeoutExpired:
-                err = f"nix eval timed out after {timeout}s"
-                result = EvalResult(
-                    expr=expr,
-                    value_json=None,
-                    status=ValueStatus.error,
-                    error=err,
-                    cached=False,
-                    generation_id=gen,
-                )
-                self.db.upsert_option_value(
-                    OptionValue(
-                        key=cache_key,
-                        expr=expr,
-                        value_json=None,
-                        status=ValueStatus.error,
-                        error=err,
-                        computed_at=datetime.now(UTC),
-                    )
-                )
-                return result
-            except Exception as exc:
-                err = str(exc)
-                result = EvalResult(
-                    expr=expr,
-                    value_json=None,
-                    status=ValueStatus.error,
-                    error=err,
-                    cached=False,
-                    generation_id=gen,
-                )
-                self.db.upsert_option_value(
-                    OptionValue(
-                        key=cache_key,
-                        expr=expr,
-                        value_json=None,
-                        status=ValueStatus.error,
-                        error=err,
-                        computed_at=datetime.now(UTC),
-                    )
-                )
-                return result
-
-        # For eval we rely on DB cache (persistent) and in-memory LRU
-        # is only for the integeration test: we want second call to return
-        # cached=True, so we must not return the first call's False from LRU.
-        # Instead, always recompute (which checks DB) and then update LRU.
-        result = _compute()
+        # Patch generation_id to current if needed
+        if result.generation_id != gen:
+            result = result.model_copy(update={"generation_id": gen})
+        # Also update in-memory LRU for consistency with other verbs
         cache_key_mem = ("eval_expression", expr, timeout, gen)
         if len(self._cache) >= 128:
             self._cache.pop(next(iter(self._cache)))

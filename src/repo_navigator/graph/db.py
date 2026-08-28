@@ -559,10 +559,26 @@ def _row_to_file_state(row: sqlite3.Row) -> FileState:
 
 
 def _row_to_option_value(row: sqlite3.Row) -> OptionValue:
+    raw = row["value_json"]
+    if raw is None or raw == "":
+        value = None
+    elif isinstance(raw, (bytes, bytearray)):
+        try:
+            value = json.loads(raw.decode())
+        except Exception:
+            value = raw
+    elif isinstance(raw, str):
+        try:
+            value = json.loads(raw)
+        except Exception:
+            value = raw
+    else:
+        # Already a Python object (e.g. int, dict) due to SQLite JSON handling
+        value = raw
     return OptionValue(
         key=row["key"],
         expr=row["expr"],
-        value_json=json.loads(row["value_json"]) if row["value_json"] else None,
+        value_json=value,
         status=ValueStatus(row["status"]),
         error=row["error"],
         computed_at=_dt_from_str(row["computed_at"]) or datetime.now(UTC),

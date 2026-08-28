@@ -75,8 +75,8 @@ class TestIntrospectOption:
     def test_include_value_with_mock(self) -> None:
         _, _, engine = _setup_option_graph()
         # Mock eval to return 42
-        with patch("repo_navigator.graph.queries.subprocess.run") as mock_run, patch(
-            "repo_navigator.graph.queries.shutil.which", return_value="/nix/bin/nix"
+        with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
+            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
         ):
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = json.dumps(42)
@@ -92,8 +92,8 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.graph.queries.subprocess.run") as mock_run, patch(
-            "repo_navigator.graph.queries.shutil.which", return_value="/nix/bin/nix"
+        with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
+            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
         ):
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = json.dumps({"a": 1})
@@ -114,7 +114,7 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.graph.queries.shutil.which", return_value=None):
+        with patch("repo_navigator.nix.eval.shutil.which", return_value=None):
             res = engine.eval_expression("1+1")
             assert res.status.value == "unresolved"
             assert "nix not found" in (res.error or "")
@@ -124,8 +124,8 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.graph.queries.subprocess.run") as mock_run, patch(
-            "repo_navigator.graph.queries.shutil.which", return_value="/nix/bin/nix"
+        with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
+            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
         ):
             mock_run.return_value.returncode = 1
             mock_run.return_value.stdout = ""
@@ -139,8 +139,8 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.graph.queries.subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="nix", timeout=1)), patch(
-            "repo_navigator.graph.queries.shutil.which", return_value="/nix/bin/nix"
+        with patch("repo_navigator.nix.eval.subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="nix", timeout=1)), patch(
+            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
         ):
             res = engine.eval_expression("1+1", timeout=1)
             assert res.status.value == "error"

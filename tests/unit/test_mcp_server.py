@@ -130,8 +130,8 @@ async def test_mcp_eval_expression_mocked() -> None:
 
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    with patch("repo_navigator.graph.queries.subprocess.run") as mock_run, patch(
-        "repo_navigator.graph.queries.shutil.which", return_value="/nix/bin/nix"
+    with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
+        "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
     ):
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = json.dumps(123)
