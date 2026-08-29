@@ -66,7 +66,7 @@
           doCheck = false;  # tests require local repo
           meta = {
             description = "Knowledge-graph assistant for NixOS and home-manager repositories";
-            homepage = "https://github.com/anomalyco/nix-repo-navigator";
+            homepage = "https://github.com/MaximRock/nix-repo-navigator";
             license = pkgs.lib.licenses.mit;
             maintainers = [ ];
             platforms = pkgs.lib.platforms.linux;
