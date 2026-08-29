@@ -28,3 +28,4 @@ parse_errors.log
 .vscode/
 .idea/
 .DS_Store
+.result
