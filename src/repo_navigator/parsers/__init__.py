@@ -1,6 +1,7 @@
 """Parser subpackage: language parsers and registry."""
 
 from repo_navigator.parsers import nix_parser  # noqa: F401 — registers NixParser
+from repo_navigator.parsers.plugins import kdl  # noqa: F401 — registers KDLParser (tier 1)
 from repo_navigator.parsers.registry import (  # noqa: F401
     LanguageConfig,
     clear_registry,

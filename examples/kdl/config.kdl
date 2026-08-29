@@ -1,0 +1,6 @@
+// KDL example for repo-navigator plugin demo
+bind "mod+Return" spawn "kitty"
+bind "mod+q" spawn "qutebrowser"
+rule "window" {
+    spawn "xterm"
+}
