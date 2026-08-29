@@ -1,7 +1,6 @@
 # nix-repo-navigator
 
 [![CI](https://github.com/MaximRock/nix-repo-navigator/actions/workflows/ci.yml/badge.svg)](https://github.com/MaximRock/nix-repo-navigator/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/nix-repo-navigator)](https://pypi.org/project/nix-repo-navigator/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-2.x-green)](https://modelcontextprotocol.io)
@@ -13,14 +12,7 @@ Knowledge-graph assistant for **NixOS** and **home-manager** repositories. Build
 ## Quickstart (30s)
 
 ```bash
-# Nix (flake)
 nix run github:MaximRock/nix-repo-navigator -- index .
-
-# or pip
-pipx install nix-repo-navigator
-nix-repo-navigator index .
-
-# or dev: uv venv && uv pip install -e ".[dev]"
 
 # Query the graph
 nix-repo-navigator query find "services.foo" --limit 5
@@ -46,17 +38,6 @@ nix-repo-navigator watch .
 npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --root .
 # or via CLI:
 nix-repo-navigator start --root .
-```
-
-### Dev (Nix parser)
-
-```bash
-uv venv
-uv pip install -e ".[dev]"
-pytest tests/ -q          # 355 tests
-nix-repo-navigator dev lex ./a.nix
-nix-repo-navigator dev parse ./a.nix
-nix-repo-navigator dev extract ./a.nix
 ```
 
 ## Architecture (3 layers)
@@ -195,6 +176,21 @@ class MyParser(BaseParser):
 ```
 
 See `docs/development.md`.
+
+## Without Nix
+
+```bash
+# pip
+pip install nix-repo-navigator
+
+# or uv
+uv venv && uv pip install -e ".[dev]"
+
+# or pipx
+pipx install nix-repo-navigator
+```
+
+Then use `nix-repo-navigator` as shown in Quickstart.
 
 ## License
 

@@ -1,5 +1,5 @@
 {
-  description = "repo-navigator — knowledge-graph assistant for NixOS and home-manager";
+  description = "nix-repo-navigator — knowledge-graph assistant for NixOS and home-manager";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
