@@ -13,15 +13,16 @@ Knowledge-graph assistant for **NixOS** and **home-manager** repositories. Build
 ## Quickstart (30s)
 
 ```bash
-# Install (with pipx recommended)
-pipx install nix-repo-navigator
-# or: pip install nix-repo-navigator
-# or dev: uv venv && uv pip install -e ".[dev]"
+# Nix (flake)
+nix run github:MaximRock/nix-repo-navigator -- index .
 
-# Index your repo (creates .repo-navigator.db)
+# or pip
+pipx install nix-repo-navigator
 nix-repo-navigator index .
 
-# Query the graph (CLI)
+# or dev: uv venv && uv pip install -e ".[dev]"
+
+# Query the graph
 nix-repo-navigator query find "services.foo" --limit 5
 nix-repo-navigator query observe nix:a.nix --depth 1
 nix-repo-navigator query path nix:a.nix nix:b.nix
@@ -119,6 +120,41 @@ npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --roo
 Tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_module`, `introspect_option`, `eval_expression`, `impact_analysis`, `status`, `refresh`, `list_flake_inputs`, `list_packages`, `get_package` (14).
 
 See `docs/query-verbs.md` and `docs/architecture.md`.
+
+## Nix Flake
+
+Add to your `flake.nix`:
+
+```nix
+{
+  inputs = {
+    nix-repo-navigator = {
+      url = "github:MaximRock/nix-repo-navigator";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { nix-repo-navigator, ... }: {
+    # home-manager: add to packages
+    home-manager.users.max.home.packages = [
+      nix-repo-navigator.packages.${system}.default
+    ];
+
+    # or NixOS:
+    environment.systemPackages = [
+      nix-repo-navigator.packages.${system}.default
+    ];
+  };
+}
+```
+
+```bash
+# Run without install
+nix run github:MaximRock/nix-repo-navigator -- refresh ~/.dotfiles
+
+# Dev shell
+nix develop github:MaximRock/nix-repo-navigator
+```
 
 ## Configuration
 
