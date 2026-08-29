@@ -43,7 +43,7 @@ class MyParser(BaseParser):
 Enable:
 
 ```bash
-REPO_NAVIGATOR_PLUGINS='["myLang","kdl"]' repo-navigator index .
+REPO_NAVIGATOR_PLUGINS='["myLang","kdl"]' nix-repo-navigator index .
 # or Config(plugins=["myLang"])
 ```
 

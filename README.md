@@ -1,50 +1,50 @@
-# repo-navigator
+# nix-repo-navigator
 
-[![CI](https://github.com/anomalyco/repo-navigator/actions/workflows/ci.yml/badge.svg)](https://github.com/anomalyco/repo-navigator/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/repo-navigator)](https://pypi.org/project/repo-navigator/)
+[![CI](https://github.com/anomalyco/nix-repo-navigator/actions/workflows/ci.yml/badge.svg)](https://github.com/anomalyco/nix-repo-navigator/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/nix-repo-navigator)](https://pypi.org/project/nix-repo-navigator/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![MCP](https://img.shields.io/badge/MCP-2.x-green)](https://modelcontextprotocol.io)
 
 Knowledge-graph assistant for **NixOS** and **home-manager** repositories. Builds an incremental, multi-level graph with Nix at the root and exposes an MCP interface for AI agents.
 
-> **Status:** MVP 0.1.0 — 355 tests, 14 MCP tools, incremental indexing, KDL plugin.
+> **Status:** MVP 0.1.0 — 370 tests, 14 MCP tools, incremental indexing, KDL plugin.
 
 ## Quickstart (30s)
 
 ```bash
 # Install (with pipx recommended)
-pipx install repo-navigator
-# or: pip install repo-navigator
+pipx install nix-repo-navigator
+# or: pip install nix-repo-navigator
 # or dev: uv venv && uv pip install -e ".[dev]"
 
 # Index your repo (creates .repo-navigator.db)
-repo-navigator index .
+nix-repo-navigator index .
 
 # Query the graph (CLI)
-repo-navigator query find "services.foo" --limit 5
-repo-navigator query observe nix:a.nix --depth 1
-repo-navigator query path nix:a.nix nix:b.nix
-repo-navigator query impact nix:b.nix
+nix-repo-navigator query find "services.foo" --limit 5
+nix-repo-navigator query observe nix:a.nix --depth 1
+nix-repo-navigator query path nix:a.nix nix:b.nix
+nix-repo-navigator query impact nix:b.nix
 
 # Option introspection (static + lazy nix eval)
-repo-navigator query option services.foo.enable --eval
+nix-repo-navigator query option services.foo.enable --eval
 
 # Flake & packages (mock)
-repo-navigator query flake-inputs
-repo-navigator query packages --query ripgrep
+nix-repo-navigator query flake-inputs
+nix-repo-navigator query packages --query ripgrep
 
 # Status / refresh
-repo-navigator status
-repo-navigator refresh
+nix-repo-navigator status
+nix-repo-navigator refresh
 
 # Watch (incremental, debounced)
-repo-navigator watch .
+nix-repo-navigator watch .
 
 # MCP Inspector (for agents)
 npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --root .
 # or via CLI:
-repo-navigator start --root .
+nix-repo-navigator start --root .
 ```
 
 ### Dev (Nix parser)
@@ -53,9 +53,9 @@ repo-navigator start --root .
 uv venv
 uv pip install -e ".[dev]"
 pytest tests/ -q          # 355 tests
-repo-navigator dev lex ./a.nix
-repo-navigator dev parse ./a.nix
-repo-navigator dev extract ./a.nix
+nix-repo-navigator dev lex ./a.nix
+nix-repo-navigator dev parse ./a.nix
+nix-repo-navigator dev extract ./a.nix
 ```
 
 ## Architecture (3 layers)
@@ -107,7 +107,7 @@ All responses include `generation_id`.
 
 ```bash
 # Via CLI (stdio)
-repo-navigator start --root . --db-path .repo-navigator.db
+nix-repo-navigator start --root . --db-path .repo-navigator.db
 
 # Direct
 python -m repo_navigator.mcp_server --root . --db-path .repo-navigator.db

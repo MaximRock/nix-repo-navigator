@@ -32,17 +32,17 @@ Every response includes `generation_id` (SQLite `generation` table, `inc` on eac
 ## Examples
 
 ```bash
-repo-navigator query observe nix:a.nix --depth 1
-repo-navigator query hop nix:a.nix --relation imports --depth 2 --width 5
-repo-navigator query path nix:a.nix nix:d.nix
-repo-navigator query blast nix:c.nix --max-depth 3
-repo-navigator query find "services.foo" --fuzzy --limit 5
-repo-navigator query summarize a.nix
-repo-navigator query option services.foo.enable --eval
-repo-navigator query eval "1+1" --timeout 10
-repo-navigator query impact nix:b.nix
-repo-navigator query flake-inputs
-repo-navigator query packages ripgrep
+nix-repo-navigator query observe nix:a.nix --depth 1
+nix-repo-navigator query hop nix:a.nix --relation imports --depth 2 --width 5
+nix-repo-navigator query path nix:a.nix nix:d.nix
+nix-repo-navigator query blast nix:c.nix --max-depth 3
+nix-repo-navigator query find "services.foo" --fuzzy --limit 5
+nix-repo-navigator query summarize a.nix
+nix-repo-navigator query option services.foo.enable --eval
+nix-repo-navigator query eval "1+1" --timeout 10
+nix-repo-navigator query impact nix:b.nix
+nix-repo-navigator query flake-inputs
+nix-repo-navigator query packages ripgrep
 ```
 
 MCP (Inspector):
