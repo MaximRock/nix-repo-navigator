@@ -49,7 +49,7 @@
             typer
             watchdog
             xxhash
-            GitPython
+            gitpython
             mcp
           ];
           optional-dependencies = {
