@@ -19,6 +19,9 @@ uv.lock
 .repo-navigator.db
 .repo-navigator.db-wal
 .repo-navigator.db-shm
+*.db
+*.db-wal
+*.db-shm
 parse_errors.log
 
 # IDE / OS

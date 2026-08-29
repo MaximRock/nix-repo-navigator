@@ -24,6 +24,12 @@ class NixParser(BaseParser):
     tier = 0
 
     def parse(self, path: Path, content: str) -> ParseResult:
+        # Empty / comment-only file: nothing to index.
+        from repo_navigator.parsers.nix.lexer import tokenize
+        
+        tokens = tokenize(content)
+        if len(tokens) <= 1:  # only EOF
+            return ParseResult(nodes=[], edges=[])
         try:
             return self._parse_inner(path, content)
         except Exception:

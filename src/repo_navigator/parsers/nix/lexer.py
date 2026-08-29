@@ -175,7 +175,7 @@ class _Lexer:
                 self._step_sstr()
             else:
                 self._step_hstr()
-        if self.mode in ("sstr", "hstr") and self._buf:
+        if self.mode in ("sstr", "hstr"):
             self._flush_string()
         self._emit(TokenType.EOF, "", self.line, self.col)
         return self.tokens
@@ -484,14 +484,13 @@ class _Lexer:
         self.mode = "sstr"
 
     def _flush_string(self) -> None:
-        if self._buf:
-            ttype = (
-                TokenType.STRING_HEREDOC
-                if self.mode == "hstr"
-                else TokenType.STRING_DOUBLE
-            )
-            self._emit(ttype, self._buf, self._str_start_line, self._str_start_col)
-            self._buf = ""
+        ttype = (
+            TokenType.STRING_HEREDOC
+            if self.mode == "hstr"
+            else TokenType.STRING_DOUBLE
+        )
+        self._emit(ttype, self._buf, self._str_start_line, self._str_start_col)
+        self._buf = ""
 
     def _step_sstr(self) -> None:
         c = self.src[self.i]

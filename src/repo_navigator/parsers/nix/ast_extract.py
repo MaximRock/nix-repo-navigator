@@ -18,6 +18,7 @@ from repo_navigator.parsers.nix.parser import (
     List,
     Literal,
     Select,
+    With,
     ast_to_dict,
     parse,
 )
@@ -122,6 +123,8 @@ def _unwrap_root(expr: Expr) -> AttrSet | None:
     if isinstance(expr, AttrSet):
         return expr
     if isinstance(expr, Function):
+        return _unwrap_root(expr.body)
+    if isinstance(expr, With):
         return _unwrap_root(expr.body)
     if expr.type == "LetIn" and hasattr(expr, "body"):
         return _unwrap_root(expr.body)
@@ -407,6 +410,16 @@ def _process_options(
                         description=meta.get("description"),
                     )
                 )
+            elif short == "mkEnableOption" and func_args:
+                desc = str(func_args[0].value) if hasattr(func_args[0], "value") else None
+                result.options.append(
+                    OptionDecl(
+                        attrpath=opt_attr.name,
+                        type="types.bool",
+                        default="false",
+                        description=desc,
+                    )
+                )
 
 
 def _walk_options_recursive(
@@ -446,6 +459,17 @@ def _walk_options_recursive(
                         default=meta.get("default"),
                         example=meta.get("example"),
                         description=meta.get("description"),
+                    )
+                )
+                continue
+            elif short == "mkEnableOption" and func_args:
+                desc = str(func_args[0].value) if hasattr(func_args[0], "value") else None
+                result.options.append(
+                    OptionDecl(
+                        attrpath=".".join(prefix + [name]),
+                        type="types.bool",
+                        default="false",
+                        description=desc,
                     )
                 )
                 continue
