@@ -40,6 +40,41 @@ npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --roo
 nix-repo-navigator start --root .
 ```
 
+## Nix Flake
+
+Add to your `flake.nix`:
+
+```nix
+{
+  inputs = {
+    nix-repo-navigator = {
+      url = "github:MaximRock/nix-repo-navigator";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { nix-repo-navigator, ... }: {
+    # home-manager: add to packages
+    home-manager.users.max.home.packages = [
+      nix-repo-navigator.packages.${system}.default
+    ];
+
+    # or NixOS:
+    environment.systemPackages = [
+      nix-repo-navigator.packages.${system}.default
+    ];
+  };
+}
+```
+
+```bash
+# Run without install
+nix run github:MaximRock/nix-repo-navigator -- refresh ~/.dotfiles
+
+# Dev shell
+nix develop github:MaximRock/nix-repo-navigator
+```
+
 ## Architecture (3 layers)
 
 ```
@@ -102,40 +137,96 @@ Tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_modul
 
 See `docs/query-verbs.md` and `docs/architecture.md`.
 
-## Nix Flake
+## Agent Integration
 
-Add to your `flake.nix`:
+### Claude Desktop / MCP-compatible apps
 
-```nix
+```json
 {
-  inputs = {
-    nix-repo-navigator = {
-      url = "github:MaximRock/nix-repo-navigator";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-  };
-
-  outputs = { nix-repo-navigator, ... }: {
-    # home-manager: add to packages
-    home-manager.users.max.home.packages = [
-      nix-repo-navigator.packages.${system}.default
-    ];
-
-    # or NixOS:
-    environment.systemPackages = [
-      nix-repo-navigator.packages.${system}.default
-    ];
-  };
+  "mcpServers": {
+    "nix-repo-navigator": {
+      "command": "nix",
+      "args": [
+        "run",
+        "github:MaximRock/nix-repo-navigator",
+        "--",
+        "start",
+        "--root",
+        "/home/max/.dotfiles",
+        "--db-path",
+        "/home/max/.dotfiles/.repo-navigator.db"
+      ]
+    }
+  }
 }
 ```
 
-```bash
-# Run without install
-nix run github:MaximRock/nix-repo-navigator -- refresh ~/.dotfiles
+### opencode
 
-# Dev shell
-nix develop github:MaximRock/nix-repo-navigator
+```json
+{
+  "mcpServers": {
+    "nix-repo-navigator": {
+      "command": "nix",
+      "args": [
+        "run",
+        "github:MaximRock/nix-repo-navigator",
+        "--",
+        "start",
+        "--root",
+        "/home/max/.dotfiles"
+      ]
+    }
+  }
+}
 ```
+
+### aider
+
+```bash
+# Add to aider config (aider.conf.yml or .aider.conf.yml)
+aider --mcp-servers-file mcp-servers.json
+```
+
+Where `mcp-servers.json`:
+
+```json
+{
+  "nix-repo-navigator": {
+    "command": "nix",
+    "args": [
+      "run",
+      "github:MaximRock/nix-repo-navigator",
+      "--",
+      "start",
+      "--root",
+      "/home/max/.dotfiles"
+    ]
+  }
+}
+```
+
+### DeepSeek Harness (DSH)
+
+```json
+{
+  "mcpServers": {
+    "nix-repo-navigator": {
+      "command": "nix",
+      "args": [
+        "run",
+        "github:MaximRock/nix-repo-navigator",
+        "--",
+        "start",
+        "--root",
+        "/home/max/.dotfiles"
+      ]
+    }
+  }
+}
+```
+
+All agents get access to all 14 MCP tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_module`, `introspect_option`, `eval_expression`, `impact_analysis`, `status`, `refresh`, `list_flake_inputs`, `list_packages`, `get_package`.
 
 ## Configuration
 
