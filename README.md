@@ -139,91 +139,31 @@ See `docs/query-verbs.md` and `docs/architecture.md`.
 
 ## Agent Integration
 
-### Claude Desktop / MCP-compatible apps
-
-```json
-{
-  "mcpServers": {
-    "nix-repo-navigator": {
-      "command": "nix",
-      "args": [
-        "run",
-        "github:MaximRock/nix-repo-navigator",
-        "--",
-        "start",
-        "--root",
-        "/home/max/.dotfiles",
-        "--db-path",
-        "/home/max/.dotfiles/.repo-navigator.db"
-      ]
-    }
-  }
-}
-```
-
 ### opencode
 
 ```json
-{
-  "mcpServers": {
-    "nix-repo-navigator": {
-      "command": "nix",
-      "args": [
-        "run",
-        "github:MaximRock/nix-repo-navigator",
-        "--",
-        "start",
-        "--root",
-        "/home/max/.dotfiles"
-      ]
-    }
+mcp:{
+  "nix-repo-navigator": {
+    "type": "local",
+    "command": ["nix-repo-navigator", "start", "--root", "/home/max/.dotfiles"],
+    "enabled": true
   }
 }
 ```
-
 ### aider
 
 ```bash
-# Add to aider config (aider.conf.yml or .aider.conf.yml)
-aider --mcp-servers-file mcp-servers.json
+aider --mcp-server name=nix-repo-navigator,transport=stdio,command="nix-repo-navigator start --root /home/max/.dotfiles"
 ```
 
-Where `mcp-servers.json`:
+Where `~/.aider/mcp.yml`:
 
-```json
-{
-  "nix-repo-navigator": {
-    "command": "nix",
-    "args": [
-      "run",
-      "github:MaximRock/nix-repo-navigator",
-      "--",
-      "start",
-      "--root",
-      "/home/max/.dotfiles"
-    ]
-  }
-}
-```
+```yaml
+servers:
+- name: nix-repo-navigator
+  command: "nix-repo-navigator start --root /home/max/.dotfiles"
+  transport: stdio
 
-### DeepSeek Harness (DSH)
-
-```json
-{
-  "mcpServers": {
-    "nix-repo-navigator": {
-      "command": "nix",
-      "args": [
-        "run",
-        "github:MaximRock/nix-repo-navigator",
-        "--",
-        "start",
-        "--root",
-        "/home/max/.dotfiles"
-      ]
-    }
-  }
-}
 ```
 
 All agents get access to all 14 MCP tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_module`, `introspect_option`, `eval_expression`, `impact_analysis`, `status`, `refresh`, `list_flake_inputs`, `list_packages`, `get_package`.
