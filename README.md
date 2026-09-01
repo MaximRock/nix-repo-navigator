@@ -100,7 +100,7 @@ nix develop github:MaximRock/nix-repo-navigator
 
 * **Nix-first:** Only `.nix` is always parsed. Other languages (KDL, python…) are parsed only if referenced via `home.file`/`configures` or `.config/` and enabled in `Config.plugins`.
 * **Incremental:** `content_hash` (xxhash) → `ast_hash` (ParseResult) → `merkle_hash` (deps). `UpdateEngine` + `cascade_dirty` + `watcher` (watchdog/polling, debounce 500ms).
-* **MCP:** `mcp>=2.0` `MCPServer`, `stdio` transport, 14 tools, `generation_id` in every response.
+* **MCP:** `mcp>=2.0` `MCPServer`, `stdio` transport, 14 tools, `generation_id` in every response. Compatibility shim for `mcp 1.x` (`FastMCP`) in `mcp_server.py`.
 
 ## Query verbs (CLI `query *` / MCP `repo_navigator_*`)
 
@@ -134,6 +134,8 @@ npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --roo
 ```
 
 Tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_module`, `introspect_option`, `eval_expression`, `impact_analysis`, `status`, `refresh`, `list_flake_inputs`, `list_packages`, `get_package` (14).
+
+> **Note:** the `start`/MCP server requires `mcp>=2.0`. The Nix flake pins an overridden `mcp 2.1.1` (nixpkgs currently ships `mcp 1.x`). `mcp_server.py` includes a 1.x/2.x compatibility shim, so CLI tools keep working either way.
 
 See `docs/query-verbs.md` and `docs/architecture.md`.
 

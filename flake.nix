@@ -21,70 +21,105 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python3;
 
-        # Call package directly from pyproject.toml using pyproject-nix
+        # Load dependencies (single source of truth) from pyproject.toml
         project = pyproject-nix.lib.project.loadPyproject {
           projectRoot = ./.;
         };
 
-        # Build the package
-        repo-navigator = project.renderers.buildPythonPackage {
-          inherit python;
-          # Use python's mkVirtualEnv or buildPythonPackage
-          # For simplicity, let's use buildPythonPackage directly
-        };
+        # Override python with mcp 2.x (nixpkgs pins mcp 1.x) and its mcp-types dep.
+        python' =
+          let
+            base = pkgs.python3;
+          in
+          base.override {
+            packageOverrides =
+              _self: super:
+              let
+                mcp-types = super.buildPythonPackage rec {
+                  pname = "mcp-types";
+                  version = "2.1.1";
+                  src = pkgs.fetchPypi {
+                    pname = "mcp_types";
+                    inherit version;
+                    hash = "sha256-d9y+SPunPMpxpnPyZGpfA3oBe3oKB6yJzsERMCiJDto=";
+                  };
+                  pyproject = true;
+                  nativeBuildInputs = with super; [
+                    hatchling
+                    uv-dynamic-versioning
+                  ];
+                  propagatedBuildInputs = with super; [
+                    pydantic
+                    typing-extensions
+                  ];
+                };
 
-        # Alternative: manual buildPythonPackage
-        repo-navigator' = python.pkgs.buildPythonPackage rec {
-          pname = "nix-repo-navigator";
-          version = "0.1.0";
-          pyproject = true;
-          src = ./.;
-          nativeBuildInputs = with python.pkgs; [ hatchling ];
-          propagatedBuildInputs = with python.pkgs; [
-            networkx
-            pydantic
-            pydantic-settings
-            typer
-            watchdog
-            xxhash
-            gitpython
-            mcp
-          ];
-          optional-dependencies = {
-            dev = with python.pkgs; [
-              pytest
-              pytest-asyncio
-              pytest-cov
-            ];
-            plugins = with python.pkgs; [
-              tree-sitter
-              tree-sitter-languages
-            ];
+                mcp = super.buildPythonPackage rec {
+                  pname = "mcp";
+                  version = "2.1.1";
+                  src = pkgs.fetchPypi {
+                    inherit pname version;
+                    hash = "sha256-ULe6HrvhFwCOp73SiCNAQ+acILQD1oUdGWYebUMade8=";
+                  };
+                  pyproject = true;
+                  nativeBuildInputs = with super; [
+                    hatchling
+                    uv-dynamic-versioning
+                  ];
+                  propagatedBuildInputs = with super; [
+                    anyio
+                    httpx2
+                    jsonschema
+                    mcp-types
+                    opentelemetry-api
+                    pydantic
+                    pyjwt
+                    cryptography
+                    python-multipart
+                    sse-starlette
+                    starlette
+                    typing-extensions
+                    typing-inspection
+                    uvicorn
+                  ];
+                  passthru.optional-dependencies = super.mcp.optional-dependencies or { };
+                };
+              in
+              {
+                inherit mcp mcp-types;
+              };
           };
-          doCheck = false;  # tests require local repo
-          meta = {
-            description = "Knowledge-graph assistant for NixOS and home-manager repositories";
-            homepage = "https://github.com/MaximRock/nix-repo-navigator";
-            license = pkgs.lib.licenses.mit;
-            maintainers = [ ];
-            platforms = pkgs.lib.platforms.linux;
-          };
-        };
+
+        # Build the package on top of the overridden python set, pulling
+        # dependencies from pyproject.toml (single source of truth).
+        # Note: optional plugins ([tool... "plugins"]) are kept in the dev
+        # shell (via uv, from PyPI) — nixpkgs' tree-sitter-languages is broken.
+        repo-navigator = python'.pkgs.buildPythonPackage (
+          project.renderers.buildPythonPackage {
+            python = python';
+          }
+          // {
+            pythonImportsCheck = [
+              "mcp.server.mcpserver"
+              "repo_navigator.mcp_server"
+            ];
+            doCheck = false;
+          }
+        );
       in
       {
-        packages.default = repo-navigator';
+        packages.default = repo-navigator;
 
         apps.default = {
           type = "app";
-          program = "${repo-navigator'}/bin/nix-repo-navigator";
+          program = "${repo-navigator}/bin/nix-repo-navigator";
         };
 
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
-            python
-            python.pkgs.hatchling
+            python'
+            python'.pkgs.hatchling
             uv
             tree-sitter
           ];

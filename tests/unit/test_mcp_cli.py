@@ -54,7 +54,7 @@ def test_cli_start_runs_with_mock(tmp_path) -> None:
 def test_mcp_error_observe_missing() -> None:
     import asyncio
 
-    from mcp.server.mcpserver.exceptions import ToolError
+    from repo_navigator.mcp_server import ToolError
 
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
@@ -70,7 +70,7 @@ def test_mcp_error_observe_missing() -> None:
 def test_mcp_error_hop_budget() -> None:
     import asyncio
 
-    from mcp.server.mcpserver.exceptions import ToolError
+    from repo_navigator.mcp_server import ToolError
 
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
@@ -86,7 +86,7 @@ def test_mcp_error_hop_budget() -> None:
 def test_mcp_error_summarize_missing() -> None:
     import asyncio
 
-    from mcp.server.mcpserver.exceptions import ToolError
+    from repo_navigator.mcp_server import ToolError
 
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
@@ -101,7 +101,7 @@ def test_mcp_error_summarize_missing() -> None:
 def test_mcp_eval_timeout_validation() -> None:
     import asyncio
 
-    from mcp.server.mcpserver.exceptions import ToolError
+    from repo_navigator.mcp_server import ToolError
 
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
@@ -117,7 +117,7 @@ def test_mcp_eval_timeout_validation() -> None:
 def test_mcp_blast_depth_validation() -> None:
     import asyncio
 
-    from mcp.server.mcpserver.exceptions import ToolError
+    from repo_navigator.mcp_server import ToolError
 
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)

@@ -18,15 +18,21 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
-from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+try:  # mcp 2.x
+    from mcp.server.mcpserver import MCPServer as _MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError as ToolError
+except ModuleNotFoundError:  # mcp 1.x fallback
+    from mcp.server.fastmcp import FastMCP as _MCPServer
+    from mcp.server.fastmcp.exceptions import ToolError as ToolError
 
-from repo_navigator.config import Config
-from repo_navigator.graph.db import Database
-from repo_navigator.graph.nx_graph import NxGraph
-from repo_navigator.graph.queries import QueryEngine
+MCPServer: TypeAlias = _MCPServer
+
+from repo_navigator.config import Config  # noqa: E402
+from repo_navigator.graph.db import Database  # noqa: E402
+from repo_navigator.graph.nx_graph import NxGraph  # noqa: E402
+from repo_navigator.graph.queries import QueryEngine  # noqa: E402
 
 # ------------------------------------------------------------------ factory
 
@@ -301,7 +307,11 @@ def _parse_args() -> Config:
 
 async def _run_stdio(config: Config) -> None:
     server = create_mcp_server(config=config)
-    await server.run_stdio_async()
+    run_stdio = getattr(server, "run_stdio_async", None)
+    if run_stdio is not None:  # mcp 2.x
+        await run_stdio()
+    else:  # mcp 1.x FastMCP
+        await server.run_async()  # type: ignore[attr-defined]
 
 
 def main() -> None:
