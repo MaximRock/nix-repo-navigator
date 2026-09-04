@@ -16,9 +16,7 @@ uv.lock
 .uv-cache/
 
 # repo-navigator runtime
-.repo-navigator.db
-.repo-navigator.db-wal
-.repo-navigator.db-shm
+.repo-navigator/
 *.db
 *.db-wal
 *.db-shm

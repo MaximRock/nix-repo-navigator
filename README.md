@@ -124,10 +124,10 @@ All responses include `generation_id`.
 
 ```bash
 # Via CLI (stdio)
-nix-repo-navigator start --root . --db-path .repo-navigator.db
+nix-repo-navigator start --root .  # DB: .repo-navigator/repo-navigator.db
 
 # Direct
-python -m repo_navigator.mcp_server --root . --db-path .repo-navigator.db
+python -m repo_navigator.mcp_server --root .  # DB: .repo-navigator/repo-navigator.db
 
 # Inspector
 npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --root .
@@ -181,7 +181,7 @@ REPO_NAVIGATOR_WATCHER_MODE=auto   # auto|inotify|polling
 REPO_NAVIGATOR_TIMEOUTS='{"debounce_ms":500,"nix_eval":60}'
 ```
 
-`Config` (`pydantic-settings`) → `resolved_db_path` defaults to `<root>/.repo-navigator.db`.
+`Config` (`pydantic-settings`) → `resolved_db_path` defaults to `<root>/.repo-navigator/repo-navigator.db` (all navigator runtime files live in `<root>/.repo-navigator/`).
 
 ## Development
 

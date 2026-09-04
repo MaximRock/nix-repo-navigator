@@ -20,6 +20,10 @@ def test_watcher_collects_nix_and_skips_git(tmp_path: Path) -> None:
     (git_dir / "c.nix").write_text("{ a = 1; }")
     (tmp_path / "result").mkdir()
     (tmp_path / "result" / "d.nix").write_text("{ a = 1; }")
+    nav_dir = tmp_path / ".repo-navigator"
+    nav_dir.mkdir()
+    (nav_dir / "repo-navigator.db").write_text("")
+    (nav_dir / "e.nix").write_text("{ a = 1; }")
 
     router = EventRouter(debounce_ms=50)
     watcher = RepoWatcher(tmp_path, router, config=Config(root=tmp_path))
@@ -29,6 +33,7 @@ def test_watcher_collects_nix_and_skips_git(tmp_path: Path) -> None:
     assert "b.txt" not in paths
     assert "c.nix" not in paths  # inside .git, skipped
     assert "d.nix" not in paths  # inside result, skipped
+    assert "e.nix" not in paths  # inside .repo-navigator, skipped
 
 
 def test_watcher_start_polling_mode(tmp_path: Path) -> None:
@@ -74,5 +79,6 @@ def test_watcher_should_handle_only_nix(tmp_path: Path) -> None:
     handler = _WatchdogHandler(tmp_path, router, loop, cfg)
     assert handler._should_handle(str(tmp_path / "a.nix")) is True
     assert handler._should_handle(str(tmp_path / "a.txt")) is False
-    assert handler._should_handle(str(tmp_path / ".repo-navigator.db")) is False
+    assert handler._should_handle(str(tmp_path / "test.db")) is False
+    assert handler._should_handle(str(tmp_path / ".repo-navigator" / "repo-navigator.db")) is False
     loop.close()

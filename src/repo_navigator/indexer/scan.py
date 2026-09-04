@@ -20,7 +20,7 @@ from repo_navigator.parsers.registry import get_parser_for_file, safe_parse, sho
 log = logging.getLogger(__name__)
 
 # Directories that are never indexed (even if they contain .nix files).
-SKIP_DIRS = {".git", ".venv", ".direnv", "__pycache__", "result", ".mypy_cache", ".pytest_cache", "target", "node_modules"}
+SKIP_DIRS = {".git", ".venv", ".repo-navigator", ".direnv", "__pycache__", "result", ".mypy_cache", ".pytest_cache", "target", "node_modules"}
 
 
 def collect_files(

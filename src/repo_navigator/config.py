@@ -29,7 +29,7 @@ class Config(BaseSettings):
     )
     db_path: Path | None = Field(
         default=None,
-        description="SQLite path; defaults to <root>/.repo-navigator.db.",
+        description="SQLite path; defaults to <root>/.repo-navigator/repo-navigator.db.",
     )
 
     budgets: dict[str, int] = Field(
@@ -46,4 +46,6 @@ class Config(BaseSettings):
 
     @property
     def resolved_db_path(self) -> Path:
-        return self.db_path if self.db_path is not None else self.root / ".repo-navigator.db"
+        if self.db_path is not None:
+            return self.db_path
+        return self.root / ".repo-navigator" / "repo-navigator.db"

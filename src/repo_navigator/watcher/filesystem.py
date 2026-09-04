@@ -14,8 +14,7 @@ from repo_navigator.parsers.registry import get_parser_for_file
 log = logging.getLogger(__name__)
 
 # Paths that are never watched
-SKIP_DIRS = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".direnv", "result", "target", "node_modules"}
-SKIP_FILES = {".repo-navigator.db"}
+SKIP_DIRS = {".git", ".hg", ".svn", ".repo-navigator", "__pycache__", ".mypy_cache", ".pytest_cache", ".direnv", "result", "target", "node_modules"}
 
 
 class _WatchdogHandler:  # type: ignore[no-redef]
@@ -29,8 +28,8 @@ class _WatchdogHandler:  # type: ignore[no-redef]
 
     def _should_handle(self, path: str | Path) -> bool:
         p = Path(path)
-        # Skip DB file itself
-        if p.name in SKIP_FILES or p.name == ".repo-navigator.db":
+        # Skip navigator runtime dir and DB file
+        if self._is_skip_path(p):
             return False
         # Skip pyc
         if p.suffix == ".pyc":
@@ -45,6 +44,13 @@ class _WatchdogHandler:  # type: ignore[no-redef]
         if p.name.startswith(".") and p.name != ".config":
             return False
         return True
+
+    @staticmethod
+    def _is_skip_path(p: Path) -> bool:
+        for part in p.parts:
+            if part in SKIP_DIRS:
+                return True
+        return False
 
     def _handle(self, src_path: str) -> None:
         if not self._should_handle(src_path):
@@ -208,9 +214,6 @@ class RepoWatcher:
                 if entry.is_dir():
                     stack.append(entry)
                 elif entry.is_file() and entry.suffix == ".nix":
-                    # Also skip DB file
-                    if entry.name == ".repo-navigator.db":
-                        continue
                     found.append(entry)
         return found
 

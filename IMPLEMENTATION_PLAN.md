@@ -25,9 +25,10 @@
   .ruff_cache/
 
   # repo-navigator runtime
-  .repo-navigator.db
-  .repo-navigator.db-wal
-  .repo-navigator.db-shm
+  .repo-navigator/
+  *.db
+  *.db-wal
+  *.db-shm
   parse_errors.log
 
   # IDE / OS
@@ -234,7 +235,7 @@ class Config(BaseSettings):
     
     root: Path = Path.cwd()
     plugins: list[str] = []          # [] = только Nix
-    db_path: Path | None = None      # по умолчанию <root>/.repo-navigator.db
+    db_path: Path | None = None      # по умолчанию <root>/.repo-navigator/repo-navigator.db
     budgets: dict = {"width": 10, "depth": 5, "limit": 10}
     timeouts: dict = {"nix_eval": 60, "debounce_ms": 500, "polling_s": 60}
     watcher_mode: str = "auto"       # auto | inotify | polling
@@ -673,7 +674,7 @@ class FileWatcher:
         # Автоопределение режима:
         #   пробуем watchdog.observers.Observer
         #   при ошибке → mtime polling
-        # Игнорировать: .git/, .repo-navigator.db, __pycache__, *.pyc
+        # Игнорировать: .git/, .repo-navigator/, __pycache__, *.pyc
         # Все изменения → event_router.on_file_event()
 ```
 

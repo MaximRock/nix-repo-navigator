@@ -315,7 +315,8 @@ class TestFts5:
 
 class TestPersistence:
     def test_survives_reopen_and_reinit(self, tmp_path: Path) -> None:
-        db_path = tmp_path / ".repo-navigator.db"
+        db_path = tmp_path / ".repo-navigator" / "repo-navigator.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
         first = Database(db_path)
         first.init_db()
         first.upsert_node(make_module("persist.nix"))

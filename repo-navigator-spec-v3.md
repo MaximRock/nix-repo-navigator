@@ -153,7 +153,7 @@ repo-navigator/
         │   # • budgets: dict — width/depth/limit для запросов
         │   # • timeouts: dict — nix_eval, debounce, polling
         │   # • watcher: dict — режим (inotify/polling), интервал
-        │   # • db_path: Path — путь к SQLite-файлу (по умолчанию <root>/.repo-navigator.db)
+        │   # • db_path: Path — путь к SQLite-файлу (по умолчанию <root>/.repo-navigator/repo-navigator.db)
         │   # • log_level: str
         │   # Загрузка: env vars (REPO_NAVIGATOR_*) + .env + аргументы CLI
         │
@@ -437,7 +437,7 @@ repo-navigator/
             ├── filesystem.py       # watchdog Observer + mtime fallback
             │   # Основной режим: watchdog.observers.Observer
             │   #   - Рекурсивный watch на корень репозитория
-            │   #   - Игнорирует: .git/, .repo-navigator.db, __pycache__
+            │   #   - Игнорирует: .git/, .repo-navigator/, __pycache__
             │   # Fallback (WSL/NFS/Docker): mtime polling
             │   #   - Каждые 60s (конфигурируемо) обходит все файлы
             │   #   - Сравнивает mtime с file_state.last_parsed

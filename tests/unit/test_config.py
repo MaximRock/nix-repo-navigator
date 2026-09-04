@@ -21,7 +21,8 @@ def test_defaults(tmp_path: Path, monkeypatch) -> None:
 
 def test_resolved_db_path_default_under_root(tmp_path: Path) -> None:
     cfg = Config(root=tmp_path, _env_file=None)
-    assert cfg.resolved_db_path == tmp_path / ".repo-navigator.db"
+    assert cfg.resolved_db_path == tmp_path / ".repo-navigator" / "repo-navigator.db"
+    assert cfg.resolved_db_path.parent == tmp_path / ".repo-navigator"
 
 
 def test_env_overrides(monkeypatch) -> None:

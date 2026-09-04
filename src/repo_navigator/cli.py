@@ -32,7 +32,7 @@ app.add_typer(query_app, name="query")
 @app.command()
 def start(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """Start the MCP server (stdio transport)."""
     import asyncio
@@ -58,7 +58,7 @@ def start(
 @app.command()
 def status(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """Show graph size and generation."""
     from repo_navigator.config import Config
@@ -85,7 +85,7 @@ def status(
 @app.command()
 def refresh(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """Force a full rescan (alias for index)."""
     _run_index(root or Path.cwd(), db_path)
@@ -94,7 +94,7 @@ def refresh(
 @app.command("index")
 def index_cmd(
     path: Path = typer.Argument(Path("."), help="Repository root or file to index."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """Index a repository (or single file) into the graph."""
     _run_index(path, db_path)
@@ -103,7 +103,7 @@ def index_cmd(
 @dev_app.command("index")
 def dev_index(
     path: Path = typer.Argument(Path("."), help="Repository root or file to index."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """(dev) Index a repository (or single file) into the graph."""
     _run_index(path, db_path)
@@ -112,7 +112,7 @@ def dev_index(
 @app.command("watch")
 def watch_cmd(
     path: Path = typer.Argument(Path("."), help="Repository root to watch."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """Watch a repository for changes and incrementally update the graph."""
     asyncio.run(_run_watch(path, db_path))
@@ -121,7 +121,7 @@ def watch_cmd(
 @dev_app.command("watch")
 def dev_watch(
     path: Path = typer.Argument(Path("."), help="Repository root to watch."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator.db)."),
+    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
 ) -> None:
     """(dev) Watch a repository for changes."""
     asyncio.run(_run_watch(path, db_path))
