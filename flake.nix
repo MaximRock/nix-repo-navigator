@@ -21,13 +21,38 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        lib = pkgs.lib;
+
+        # Single place to bump pinned fallback versions (used only when nixpkgs
+        # ships something too old: mcp <2.0 or httpx2 <2.5.0).
+        mcpVersion = "2.1.1";
+        mcpHash = "sha256-ULe6HrvhFwCOp73SiCNAQ+acILQD1oUdGWYebUMade8=";
+        mcpTypesVersion = "2.1.1";
+        mcpTypesHash = "sha256-d9y+SPunPMpxpnPyZGpfA3oBe3oKB6yJzsERMCiJDto=";
+        idnaVersion = "3.18";
+        idnaHash = "sha256-/7OFp+A5ZUzvGrnvMsb6/ig8DARnu6HZApc4zkoUqEg=";
+        httpx2Version = "2.9.1";
+        httpx2Hash = "sha256-GTKnaHN+NmYpFYKDPadIzE5WPDN8+WcG/MwE+m5Ydko=";
+        httpcore2Hash = "sha256-TYrL+LMG9IydYEZZH9W6QDfRsbEADRQPwsPqsemgwOI=";
 
         # Load dependencies (single source of truth) from pyproject.toml
         project = pyproject-nix.lib.project.loadPyproject {
           projectRoot = ./.;
         };
 
-        # Override python with mcp 2.x (nixpkgs pins mcp 1.x) and its mcp-types dep.
+        # Detect what the un-overridden nixpkgs already ships (read from the
+        # pristine set, NOT from `super` inside packageOverrides — reading
+        # version of an overridden package there recurses).
+        basePyPkgs = pkgs.python3.pkgs;
+        # Has a usable mcp 2.x already? Then everything (httpx2 etc.) is
+        # satisfiable and no overrides are needed at all.
+        hasMcp2 = basePyPkgs ? mcp && lib.versionAtLeast basePyPkgs.mcp.version "2.0";
+        # mcp 2.x requires httpx2 >=2.5.0; skip the httpx2 chain if the
+        # shipped httpx2 is already new enough.
+        hasHttpx2 = basePyPkgs ? httpx2 && lib.versionAtLeast basePyPkgs.httpx2.version "2.5.0";
+
+        # Override python only when nixpkgs ships an mcp/httpx2 that is too old
+        # for a working mcp 2.x (nixpkgs still pins mcp 1.x).
         python' =
           let
             base = pkgs.python3;
@@ -36,70 +61,13 @@
             packageOverrides =
               _self: super:
               let
-                # Pin idna >=3.18 (httpx2 requirement) — nixpkgs 26.05 ships 3.15.
-                idna = super.buildPythonPackage rec {
-                  pname = "idna";
-                  version = "3.18";
-                  src = pkgs.fetchPypi {
-                    inherit pname version;
-                    hash = "sha256-/7OFp+A5ZUzvGrnvMsb6/ig8DARnu6HZApc4zkoUqEg=";
-                  };
-                  pyproject = true;
-                  nativeBuildInputs = with super; [
-                    flit-core
-                  ];
-                };
-
-                # Pin httpcore2 to 2.9.1 (httpx2 pins ==2.9.1) — nixpkgs 26.05 ships 2.3.0.
-                httpcore2 = super.buildPythonPackage rec {
-                  pname = "httpcore2";
-                  version = "2.9.1";
-                  src = pkgs.fetchPypi {
-                    inherit pname version;
-                    hash = "sha256-TYrL+LMG9IydYEZZH9W6QDfRsbEADRQPwsPqsemgwOI=";
-                  };
-                  pyproject = true;
-                  nativeBuildInputs = with super; [
-                    hatchling
-                    hatch-fancy-pypi-readme
-                    uv-dynamic-versioning
-                  ];
-                  propagatedBuildInputs = with super; [
-                    h11
-                    truststore
-                  ];
-                };
-
-                # Pin httpx2 >=2.5.0 (mcp 2.x requires it) — nixpkgs 26.05 ships 2.3.0.
-                httpx2 = super.buildPythonPackage rec {
-                  pname = "httpx2";
-                  version = "2.9.1";
-                  src = pkgs.fetchPypi {
-                    inherit pname version;
-                    hash = "sha256-GTKnaHN+NmYpFYKDPadIzE5WPDN8+WcG/MwE+m5Ydko=";
-                  };
-                  pyproject = true;
-                  nativeBuildInputs = with super; [
-                    hatchling
-                    hatch-fancy-pypi-readme
-                    uv-dynamic-versioning
-                  ];
-                  propagatedBuildInputs = with super; [
-                    anyio
-                    httpcore2
-                    idna
-                    truststore
-                    typing-extensions
-                  ];
-                };
-
-                mcp-types = super.buildPythonPackage rec {
+                mcp-types = if hasMcp2 then super.mcp-types else super.buildPythonPackage rec {
                   pname = "mcp-types";
-                  version = "2.1.1";
+                  version = mcpTypesVersion;
                   src = pkgs.fetchPypi {
                     pname = "mcp_types";
                     inherit version;
-                    hash = "sha256-d9y+SPunPMpxpnPyZGpfA3oBe3oKB6yJzsERMCiJDto=";
+                    hash = mcpTypesHash;
                   };
                   pyproject = true;
                   nativeBuildInputs = with super; [
@@ -112,12 +80,16 @@
                   ];
                 };
 
-                mcp = super.buildPythonPackage rec {
+                # Note: when mcp is pinned (hasMcp2 false) it must reference the
+                # *selected* httpx2 below (its own pin OR nixpkgs' new enough
+                # one), otherwise a stale httpx2 chain would smuggle in a
+                # conflicting idna; when hasMcp2 is true we reuse super.mcp.
+                mcp = if hasMcp2 then super.mcp else super.buildPythonPackage rec {
                   pname = "mcp";
-                  version = "2.1.1";
+                  version = mcpVersion;
                   src = pkgs.fetchPypi {
                     inherit pname version;
-                    hash = "sha256-ULe6HrvhFwCOp73SiCNAQ+acILQD1oUdGWYebUMade8=";
+                    hash = mcpHash;
                   };
                   pyproject = true;
                   nativeBuildInputs = with super; [
@@ -141,6 +113,64 @@
                     uvicorn
                   ];
                   passthru.optional-dependencies = super.mcp.optional-dependencies or { };
+                };
+
+                # Pin idna >=3.18 (httpx2 requirement) — nixpkgs 26.05 ships 3.15.
+                idna = if hasHttpx2 then super.idna else super.buildPythonPackage rec {
+                  pname = "idna";
+                  version = idnaVersion;
+                  src = pkgs.fetchPypi {
+                    inherit pname version;
+                    hash = idnaHash;
+                  };
+                  pyproject = true;
+                  nativeBuildInputs = with super; [
+                    flit-core
+                  ];
+                };
+
+                # Pin httpcore2 to httpx2's exact requirement (httpx2 pins ==2.9.1)
+                # — nixpkgs 26.05 ships 2.3.0.
+                httpcore2 = if hasHttpx2 then super.httpcore2 else super.buildPythonPackage rec {
+                  pname = "httpcore2";
+                  version = httpx2Version;
+                  src = pkgs.fetchPypi {
+                    inherit pname version;
+                    hash = httpcore2Hash;
+                  };
+                  pyproject = true;
+                  nativeBuildInputs = with super; [
+                    hatchling
+                    hatch-fancy-pypi-readme
+                    uv-dynamic-versioning
+                  ];
+                  propagatedBuildInputs = with super; [
+                    h11
+                    truststore
+                  ];
+                };
+
+                # Pin httpx2 >=2.5.0 (mcp 2.x requires it) — nixpkgs 26.05 ships 2.3.0.
+                httpx2 = if hasHttpx2 then super.httpx2 else super.buildPythonPackage rec {
+                  pname = "httpx2";
+                  version = httpx2Version;
+                  src = pkgs.fetchPypi {
+                    inherit pname version;
+                    hash = httpx2Hash;
+                  };
+                  pyproject = true;
+                  nativeBuildInputs = with super; [
+                    hatchling
+                    hatch-fancy-pypi-readme
+                    uv-dynamic-versioning
+                  ];
+                  propagatedBuildInputs = with super; [
+                    anyio
+                    httpcore2
+                    idna
+                    truststore
+                    typing-extensions
+                  ];
                 };
               in
               {
