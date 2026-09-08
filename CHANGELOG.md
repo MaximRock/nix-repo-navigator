@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-08
+
+### Added
+- **Python plugin parser** (`parsers/plugins/python.py`, Tier 1): `py_function`/`py_class`/`python_imports`/`calls` nodes & edges via `ast`.
+- **Nix-first hardening:** `Config.parse_unreferenced`, single-file indexing mode, watcher relevance gate (`UpdateEngine.process_file`), two-pass bulk index (Nix first, then plugins) with a single `generation_id` bump per `index_repo()`.
+- **Search filters in `find_symbol`:** `node_type`, `path_contains`, `id_prefix`, `offset` (+ MCP / CLI `query find`).
+- **New graph tools:** `dependencies` / `dependents` (transitive closure over `imports`/`requires`/`python_imports` with evidence chains), `impact_analysis` now reports `evidence` ("why" paths) — 14 → 17 MCP tools.
+- **Benefit report:** session counters in `QueryEngine`, `repo_navigator_report` MCP tool, CLI `report`; savings estimate = source bytes the agent did not re-read ÷ 4.
+- **`AGENTS.md`** (mission, Nix-first principles, architecture, roadmap) and a 5-step "new language" recipe in `docs/development.md`.
+- **Fixed:** `package_index` only counts `package:`-prefixed refs (plugin imports no longer pollute the index); mcp/httpx2 version pins for nixpkgs 26.05 compat.
+
 ## [0.1.0] - 2026-08-29
 
 ### Added
@@ -32,5 +43,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - Real `nix search` for `package_index` (currently mock).
-- Additional plugins: `python`/`shell`/`lua` via `tree-sitter`.
+- Additional plugins: `shell`/`lua` via `tree-sitter`.
 - `systemd --user` watcher service.
