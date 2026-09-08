@@ -115,6 +115,11 @@ def should_parse_file(
         if parser.language not in config.plugins:
             return False
 
+    # Universal mode: parse all enabled-plugin files regardless of Nix
+    # references (Config.parse_unreferenced=True).
+    if config is not None and getattr(config, "parse_unreferenced", False):
+        return True
+
     # Nix-first: .config/ in path
     path_obj = Path(path)
     if ".config" in path_obj.parts:

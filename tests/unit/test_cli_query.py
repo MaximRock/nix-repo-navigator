@@ -27,7 +27,15 @@ def _setup_db(tmp_path: Path, db_path: Path) -> None:
     db.init_db()
     g = NxGraph()
     builder = GraphBuilder(db, g)
-    builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[RawEdge(source="nix:a.nix", target="nix:b.nix", type=EdgeType.imports)]))
+    builder.build_file(
+        "a.nix",
+        ParseResult(
+            nodes=[_mod("a.nix")],
+            edges=[
+                RawEdge(source="nix:a.nix", target="nix:b.nix", type=EdgeType.imports)
+            ],
+        ),
+    )
     builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix")], edges=[]))
     db.close()
 
@@ -35,7 +43,18 @@ def _setup_db(tmp_path: Path, db_path: Path) -> None:
 def test_query_observe(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "observe", "nix:a.nix", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "observe",
+            "nix:a.nix",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert data["node"]["id"] == "nix:a.nix"
@@ -45,7 +64,20 @@ def test_query_observe(tmp_path: Path) -> None:
 def test_query_hop(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "hop", "nix:a.nix", "--depth", "2", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "hop",
+            "nix:a.nix",
+            "--depth",
+            "2",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert "nodes" in data
@@ -54,7 +86,19 @@ def test_query_hop(tmp_path: Path) -> None:
 def test_query_path(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "path", "nix:a.nix", "nix:b.nix", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "path",
+            "nix:a.nix",
+            "nix:b.nix",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert isinstance(data, list)
@@ -64,7 +108,10 @@ def test_query_path(tmp_path: Path) -> None:
 def test_query_find(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "find", "a.nix", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        ["query", "find", "a.nix", "--root", str(tmp_path), "--db-path", str(db_path)],
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert isinstance(data, list)
@@ -73,7 +120,18 @@ def test_query_find(tmp_path: Path) -> None:
 def test_query_summarize(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "summarize", "a.nix", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "summarize",
+            "a.nix",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert data["path"] == "a.nix"
@@ -82,17 +140,84 @@ def test_query_summarize(tmp_path: Path) -> None:
 def test_query_status(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "status", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app, ["query", "status", "--root", str(tmp_path), "--db-path", str(db_path)]
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert "total_nodes" in data
     assert "generation_id" in data
 
 
+def test_query_dependencies(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    _setup_db(tmp_path, db_path)
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "dependencies",
+            "nix:a.nix",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "depends_on" in data
+    assert any(e["node"]["id"] == "nix:b.nix" for e in data["depends_on"])
+
+
+def test_query_dependents(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    _setup_db(tmp_path, db_path)
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "dependents",
+            "nix:b.nix",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert any(e["node"]["id"] == "nix:a.nix" for e in data["dependents"])
+
+
+def test_cli_report(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    _setup_db(tmp_path, db_path)
+    result = runner.invoke(
+        app, ["report", "--root", str(tmp_path), "--db-path", str(db_path)]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "queries_served" in data
+    assert "queries_by_tool" in data
+    assert "tokens_estimated_saved" in data
+
+
 def test_query_observe_missing(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     _setup_db(tmp_path, db_path)
-    result = runner.invoke(app, ["query", "observe", "nix:missing.nix", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        [
+            "query",
+            "observe",
+            "nix:missing.nix",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
     assert result.exit_code == 1
     assert "error" in result.output.lower()
 
@@ -105,9 +230,13 @@ def test_query_packages(tmp_path: Path) -> None:
 
     db = Database(str(db_path))
     db.init_db()
-    db.upsert_package("pkgs.ripgrep", "ripgrep", "1.0", "/nix/store/ripgrep", {"desc": "x"})
+    db.upsert_package(
+        "pkgs.ripgrep", "ripgrep", "1.0", "/nix/store/ripgrep", {"desc": "x"}
+    )
     db.close()
-    result = runner.invoke(app, ["query", "packages", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app, ["query", "packages", "--root", str(tmp_path), "--db-path", str(db_path)]
+    )
     assert result.exit_code == 0, result.output
     assert "ripgrep" in result.output
 
@@ -115,11 +244,24 @@ def test_query_packages(tmp_path: Path) -> None:
 def test_query_flake_inputs(tmp_path: Path) -> None:
     import json
 
-    (tmp_path / "flake.lock").write_text(json.dumps({"nodes": {"root": {}, "nixpkgs": {"locked": {"rev": "abc", "url": "https://example.com"}}}, "version": 7}))
+    (tmp_path / "flake.lock").write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "root": {},
+                    "nixpkgs": {"locked": {"rev": "abc", "url": "https://example.com"}},
+                },
+                "version": 7,
+            }
+        )
+    )
     db_path = tmp_path / "test.db"
     # Need at least one nix file to trigger index flake
     (tmp_path / "a.nix").write_text("{ config.x = 1; }")
     runner.invoke(app, ["index", str(tmp_path), "--db-path", str(db_path)])
-    result = runner.invoke(app, ["query", "flake-inputs", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        ["query", "flake-inputs", "--root", str(tmp_path), "--db-path", str(db_path)],
+    )
     assert result.exit_code == 0, result.output
     assert "nixpkgs" in result.output

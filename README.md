@@ -7,7 +7,9 @@
 
 Knowledge-graph assistant for **NixOS** and **home-manager** repositories. Builds an incremental, multi-level graph with Nix at the root and exposes an MCP interface for AI agents.
 
-> **Status:** MVP 0.1.0 — 370 tests, 14 MCP tools, incremental indexing, KDL plugin.
+> **Миссия:** repo-navigator — MCP-компаньон AI-агента в NixOS/home-manager репозиториях. Индексирует репо в типизированный граф (модули, опции, файлы, flake-входы) и через MCP отдаёт агенту точный, компактный контекст и оценку влияния изменений — без повторного перечитывания исходников, экономя токены модели. **Nix в корне**, остальные языки — плагины.
+
+> **Status:** MVP 0.1.0 — 370 tests, 14 MCP tools, incremental indexing, KDL + Python plugins.
 
 ## Quickstart (30s)
 
@@ -94,7 +96,7 @@ nix develop github:MaximRock/nix-repo-navigator
 │        module_parser (imports/declares/sets)│  parsers/nix/flake_parser.py
 │  Indy: hash_engine (xxhash) / diff /        │  indexer/ (hash, cascade, update, watch)
 │        cascade / update_engine / watch      │
-│  Plugins: KDL (tier 1, mock)                │  parsers/plugins/kdl.py
+│  Plugins: KDL, Python (tier 1)              │  parsers/plugins/ (kdl, python)
 └─────────────────────────────────────────────┘
 ```
 
@@ -176,7 +178,7 @@ Env `REPO_NAVIGATOR_*` or `.env`:
 
 ```bash
 REPO_NAVIGATOR_ROOT=.
-REPO_NAVIGATOR_PLUGINS='["kdl"]'   # enable KDL tier 1
+REPO_NAVIGATOR_PLUGINS='["kdl","python"]'   # enable KDL + Python tier 1
 REPO_NAVIGATOR_WATCHER_MODE=auto   # auto|inotify|polling
 REPO_NAVIGATOR_TIMEOUTS='{"debounce_ms":500,"nix_eval":60}'
 ```

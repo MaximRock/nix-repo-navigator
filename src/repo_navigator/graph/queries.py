@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import time
-from collections import deque
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +12,14 @@ from repo_navigator.config import Config
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.models.edges import Edge, EdgeType
-from repo_navigator.models.nodes import Node
+from repo_navigator.models.nodes import Node, NodeType
 from repo_navigator.models.queries import (
+    BenefitReport,
+    DependenciesReport,
+    DependentsReport,
+    DependencyEntry,
     EvalResult,
+    ImpactEvidence,
     ImpactReport,
     ModuleSummary,
     Neighbor,
@@ -31,6 +36,11 @@ from repo_navigator.models.queries import (
 class QueryEngine:
     """Navigation verbs with LRU cache bound to ``generation_id``."""
 
+    #: Edge types that express a "depends on" relation (used by dependencies/dependents).
+    _DEPENDENCY_TYPES = frozenset(
+        {EdgeType.imports, EdgeType.requires, EdgeType.python_imports}
+    )
+
     def __init__(
         self,
         db: Database,
@@ -43,6 +53,12 @@ class QueryEngine:
         self._cache: dict[tuple, Any] = {}
         self._cache_generation: int | None = None
         self._start_time = time.monotonic()
+        # Benefit statistics (repo_navigator_report).
+        self._stats_queries = 0
+        self._queries_by_tool: defaultdict[str, int] = defaultdict(int)
+        self._files_tracked: set[str] = set()
+        self._bytes_not_reread = 0
+        self._size_cache: dict[str, int] = {}
         # Eval cache (lazy, to avoid circular import at top)
         from repo_navigator.nix.eval_cache import EvalCache
 
@@ -67,14 +83,91 @@ class QueryEngine:
         gen = self._check_generation()
         cache_key = (key, gen)
         if cache_key in self._cache:
-            return self._cache[cache_key]
+            result = self._cache[cache_key]
+            self._note_query(str(key[0]), result)
+            return result
         result = compute()
         # Simple LRU: evict oldest if >128 entries
         if len(self._cache) >= 128:
             oldest = next(iter(self._cache))
             del self._cache[oldest]
         self._cache[cache_key] = result
+        self._note_query(str(key[0]), result)
         return result
+
+    # ------------------------------------------------------------ benefit stats
+
+    def _note_query(self, tool: str, result: Any) -> None:
+        """Count a served query and track the source bytes the agent avoided."""
+        self._stats_queries += 1
+        self._queries_by_tool[tool] += 1
+        paths: set[str] = set()
+        for n in self._result_nodes(result):
+            p = n.path
+            if not p and n.type == NodeType.file and n.name:
+                p = n.name
+            if p:
+                paths.add(p)
+        for p in paths:
+            if p in self._files_tracked:
+                continue
+            self._files_tracked.add(p)
+            self._bytes_not_reread += self._file_size(p)
+
+    def _result_nodes(self, result: Any) -> list[Node]:
+        """Best-effort extraction of nodes from any query result container."""
+        if isinstance(result, Node):
+            return [result]
+        if isinstance(result, list):
+            return [n for n in result if isinstance(n, Node)]
+        for attr in ("nodes", "depends_on", "dependents"):
+            values = getattr(result, attr, None)
+            if isinstance(values, list):
+                out = [
+                    v if isinstance(v, Node) else v.node
+                    for v in values
+                    if isinstance(v, Node) or isinstance(getattr(v, "node", None), Node)
+                ]
+                if out:
+                    return out
+        out: list[Node] = []
+        node = getattr(result, "node", None)
+        if isinstance(node, Node):
+            out.append(node)
+        neighbors = getattr(result, "neighbors", None)
+        if isinstance(neighbors, list):
+            out += [nb.node for nb in neighbors if isinstance(nb.node, Node)]
+        return out
+
+    def _file_size(self, path: str) -> int:
+        """Byte size of a repo file, lazily cached per path."""
+        cached = self._size_cache.get(path)
+        if cached is not None:
+            return cached
+        size = 0
+        root = Path(self.config.root) if self.config is not None else None
+        if root is not None:
+            try:
+                target = Path(root) / path
+                if target.is_file():
+                    size = target.stat().st_size
+            except OSError:
+                size = 0
+        self._size_cache[path] = size
+        return size
+
+    def report(self) -> BenefitReport:
+        """Session benefit report: queries served and estimated token savings."""
+        gen = self.db.get_generation_id()
+        return BenefitReport(
+            queries_served=self._stats_queries,
+            queries_by_tool=dict(sorted(self._queries_by_tool.items())),
+            files_tracked=len(self._files_tracked),
+            bytes_not_reread=self._bytes_not_reread,
+            tokens_estimated_saved=self._bytes_not_reread // 4,
+            uptime_seconds=round(time.monotonic() - self._start_time, 2),
+            generation_id=gen,
+        )
 
     # ---------------------------------------------------------------- observe
 
@@ -107,8 +200,12 @@ class QueryEngine:
                 return Observation(node=node, neighbors=[], generation_id=gen)
             # Collect nodes via BFS (both directions? observe should include all)
             # Use BFS forward + reverse and merge
-            forward = set(n.id for n in self.nx_graph.bfs(node_id, depth=depth, width=20))
-            reverse = set(n.id for n in self.nx_graph.reverse_bfs(node_id, max_depth=depth))
+            forward = set(
+                n.id for n in self.nx_graph.bfs(node_id, depth=depth, width=20)
+            )
+            reverse = set(
+                n.id for n in self.nx_graph.reverse_bfs(node_id, max_depth=depth)
+            )
             all_ids = forward | reverse
             neighbors = []
             for nid in all_ids:
@@ -145,7 +242,9 @@ class QueryEngine:
 
         def _compute() -> Subgraph:
             if width * depth > 100:
-                raise ValueError(f"budget exceeded: width*depth={width*depth} must be <=100")
+                raise ValueError(
+                    f"budget exceeded: width*depth={width * depth} must be <=100"
+                )
             if depth > 10:
                 raise ValueError("depth must be <=10")
             gen = self.db.get_generation_id()
@@ -190,7 +289,11 @@ class QueryEngine:
                     # Collect edges cur -> succ
                     if g.has_edge(cur, succ):
                         for e in g[cur][succ].get("edges", {}).values():
-                            if relation is None or e.type.value == relation or str(e.type) == relation:
+                            if (
+                                relation is None
+                                or e.type.value == relation
+                                or str(e.type) == relation
+                            ):
                                 edges_collected[e.id] = e
                     queue.append((succ, level + 1))
 
@@ -198,7 +301,9 @@ class QueryEngine:
             # Also include source node? Subgraph should contain traversed nodes, not source?
             # For hop, we include all visited excluding source, but spec is ambiguous.
             # We include visited nodes only.
-            return Subgraph(nodes=nodes, edges=list(edges_collected.values()), generation_id=gen)
+            return Subgraph(
+                nodes=nodes, edges=list(edges_collected.values()), generation_id=gen
+            )
 
         return self._cached(("hop", node_id, relation, depth, width), _compute)
 
@@ -216,11 +321,14 @@ class QueryEngine:
         gen = self._check_generation()
         key = ("path", source, target, gen)
         if key in self._cache:
-            return self._cache[key]
+            result = self._cache[key]
+            self._note_query("path", result)
+            return result
         result = _compute()
         if len(self._cache) >= 128:
             self._cache.pop(next(iter(self._cache)))
         self._cache[key] = result
+        self._note_query("path", result)
         return result
 
     # ---------------------------------------------------------------- blast_radius
@@ -234,7 +342,6 @@ class QueryEngine:
             gen = self.db.get_generation_id()
             nodes = self.nx_graph.reverse_bfs(node_id, max_depth=max_depth)
             # Collect edges for the subgraph (reverse edges)
-            g = self.nx_graph.get_graph_readonly()
             edge_ids: set[str] = set()
             edges: list[Edge] = []
             # For each node in blast, collect incoming edges that are part of blast
@@ -245,7 +352,11 @@ class QueryEngine:
                     # Only include if edge is on a path that leads to node_id?
                     # For simplicity, include all edges among visited + source
                     edges.append(e)
-                elif e.target == node_id or e.source in visited_ids and e.target in visited_ids:
+                elif (
+                    e.target == node_id
+                    or e.source in visited_ids
+                    and e.target in visited_ids
+                ):
                     pass
             # Alternative: use graph edges
             # For now, also collect via graph
@@ -265,51 +376,184 @@ class QueryEngine:
         self,
         query: str,
         lang: str | None = None,
+        node_type: str | NodeType | list[str | NodeType] | None = None,
+        path_contains: str | None = None,
+        id_prefix: str | None = None,
         fuzzy: bool = False,
         limit: int = 10,
+        offset: int = 0,
     ) -> list[Node]:
-        """FTS5 search if ``fuzzy`` is False, LIKE otherwise."""
+        """FTS5 search if ``fuzzy`` is False and no filters, LIKE otherwise.
+
+        Structural filters (``lang``/``node_type``/``path_contains``/``id_prefix``)
+        are applied via SQL ``WHERE`` on the nodes table. The same filter set
+        is used by the future graph visualizer.
+        """
+
+        def _filtered_sql() -> list[Node]:
+            conds: list[str] = ["(id LIKE ? OR name LIKE ?)"]
+            params: list[object] = [f"%{query}%", f"%{query}%"]
+            if lang is not None:
+                conds.append("lang = ?")
+                params.append(lang)
+            if node_type is not None:
+                items = node_type if isinstance(node_type, list) else [node_type]
+                types = [t.value if isinstance(t, NodeType) else str(t) for t in items]
+                conds.append(f"type IN ({', '.join('?' for _ in types)})")
+                params.extend(types)
+            if path_contains:
+                conds.append("path LIKE ?")
+                params.append(f"%{path_contains}%")
+            if id_prefix:
+                conds.append("id LIKE ?")
+                params.append(f"{id_prefix}%")
+            sql = (
+                "SELECT * FROM nodes WHERE "
+                + " AND ".join(conds)
+                + " ORDER BY name LIMIT ? OFFSET ?"
+            )
+            params.extend([limit, offset])
+            with self.db._lock:
+                rows = self.db._conn.execute(sql, params).fetchall()
+            from repo_navigator.graph.db import _row_to_node
+
+            return [_row_to_node(r) for r in rows]
 
         def _compute() -> list[Node]:
-            if fuzzy:
-                # Trigram-like: use LIKE %query%
-                # We do a simple LIKE search via SQL on nodes table
-                pattern = f"%{query}%"
-                # Use db search via direct SQL for fuzzy
-                with self.db._lock:
-                    if lang is not None:
-                        rows = self.db._conn.execute(
-                            "SELECT * FROM nodes WHERE (id LIKE ? OR name LIKE ?) AND lang=? LIMIT ?",
-                            (pattern, pattern, lang, limit),
-                        ).fetchall()
-                    else:
-                        rows = self.db._conn.execute(
-                            "SELECT * FROM nodes WHERE id LIKE ? OR name LIKE ? LIMIT ?",
-                            (pattern, pattern, limit),
-                        ).fetchall()
-                    # Need to convert rows to Node (reuse _row_to_node via db method)
-                    # For simplicity, use get_all and filter
-                    # But we have rows, we can use db's helper via search_fts5 for non-fuzzy
-                    # For fuzzy, we manually construct
-                    from repo_navigator.graph.db import _row_to_node
+            has_struct_filters = any(
+                x is not None for x in (lang, node_type, path_contains, id_prefix)
+            )
+            if fuzzy or has_struct_filters:
+                return _filtered_sql()
+            results = self.db.search_fts5(query, limit=limit + offset)
+            return results[offset : offset + limit]
 
-                    return [_row_to_node(r) for r in rows]
-            else:
-                results = self.db.search_fts5(query, limit=limit)
-                if lang is not None:
-                    results = [n for n in results if n.lang == lang]
-                return results[:limit]
-
-        # Don't cache find_symbol by generation? It should be, but query is fast
         gen = self._check_generation()
-        key = ("find_symbol", query, lang, fuzzy, limit, gen)
+        # Ensure cache key is hashable (node_type may be a list).
+        node_type_key = (
+            tuple(sorted(str(t) for t in node_type))
+            if isinstance(node_type, list)
+            else node_type
+        )
+        key = (
+            "find_symbol",
+            query,
+            lang,
+            node_type_key,
+            path_contains,
+            id_prefix,
+            fuzzy,
+            limit,
+            offset,
+            gen,
+        )
         if key in self._cache:
+            self._note_query("find_symbol", self._cache[key])
             return self._cache[key]
         result = _compute()
         if len(self._cache) >= 128:
             self._cache.pop(next(iter(self._cache)))
         self._cache[key] = result
+        self._note_query("find_symbol", result)
         return result
+
+    # ---------------------------------------------------------------- dependencies
+
+    def _dependency_closure(
+        self, node_id: str, max_depth: int, reverse: bool
+    ) -> tuple[int, list[DependencyEntry]]:
+        """BFS over dependency edges (forward or reversed); keeps evidence chains.
+
+        Returns ``(generation_id, entries)``. Raises ``KeyError`` if the node
+        does not exist.
+        """
+        if max_depth > 10:
+            raise ValueError("max_depth must be <=10")
+        gen = self.db.get_generation_id()
+        if self.db.get_node(node_id) is None:
+            raise KeyError(f"node not found: {node_id}")
+        graph = self.nx_graph.get_graph_readonly()
+        if not graph.has_node(node_id):
+            return gen, []
+
+        adj: dict[str, list[tuple[str, Edge]]] = defaultdict(list)
+        for u, v, data in graph.edges(data=True):
+            for e in data.get("edges", {}).values():
+                if e.type not in self._DEPENDENCY_TYPES:
+                    continue
+                src, tgt = (e.target, e.source) if reverse else (e.source, e.target)
+                adj[src].append((tgt, e))
+
+        parent: dict[str, tuple[str, Edge]] = {}
+        dist: dict[str, int] = {node_id: 0}
+        seen: set[str] = {node_id}
+        queue: deque[str] = deque([node_id])
+        while queue:
+            cur = queue.popleft()
+            if dist[cur] >= max_depth:
+                continue
+            for nxt, edge in adj.get(cur, ()):
+                if nxt in seen:
+                    continue
+                seen.add(nxt)
+                parent[nxt] = (cur, edge)
+                dist[nxt] = dist[cur] + 1
+                queue.append(nxt)
+
+        entries: list[DependencyEntry] = []
+        for nid in seen - {node_id}:
+            steps: list[PathStep] = []
+            cur = nid
+            while cur != node_id:
+                prev, edge = parent[cur]
+                node_data = graph.nodes[cur].get("data")
+                if node_data is not None:
+                    steps.append(
+                        PathStep(node=node_data, edge_in=edge, depth=dist[cur])
+                    )
+                cur = prev
+            steps.reverse()
+            # Prepend the target node as the chain root (edge_in=None, depth 0),
+            # mirroring ``shortest_path`` semantics.
+            target_data = graph.nodes[node_id].get("data")
+            if target_data is not None:
+                steps.insert(0, PathStep(node=target_data, edge_in=None, depth=0))
+            final_data = graph.nodes[nid].get("data")
+            if final_data is None:
+                continue
+            entries.append(
+                DependencyEntry(node=final_data, steps=steps, depth=dist[nid])
+            )
+        entries.sort(key=lambda e: (e.depth, e.node.id))
+        return gen, entries
+
+    def dependencies(self, node_id: str, max_depth: int = 5) -> DependenciesReport:
+        """Transitive closure over dependency edges: what *node_id* depends on."""
+
+        def _compute() -> DependenciesReport:
+            gen, entries = self._dependency_closure(node_id, max_depth, reverse=False)
+            return DependenciesReport(
+                target=node_id,
+                max_depth=max_depth,
+                depends_on=entries,
+                generation_id=gen,
+            )
+
+        return self._cached(("dependencies", node_id, max_depth), _compute)
+
+    def dependents(self, node_id: str, max_depth: int = 5) -> DependentsReport:
+        """Transitive closure over reversed dependency edges: what depends on *node_id*."""
+
+        def _compute() -> DependentsReport:
+            gen, entries = self._dependency_closure(node_id, max_depth, reverse=True)
+            return DependentsReport(
+                target=node_id,
+                max_depth=max_depth,
+                dependents=entries,
+                generation_id=gen,
+            )
+
+        return self._cached(("dependents", node_id, max_depth), _compute)
 
     # ---------------------------------------------------------------- summarize_module
 
@@ -333,7 +577,9 @@ class QueryEngine:
                     key_symbols.append(e.target)
                 elif e.type == EdgeType.configures:
                     key_symbols.append(e.target)
-                elif e.type == EdgeType.declares and e.target.startswith("nix_function:"):
+                elif e.type == EdgeType.declares and e.target.startswith(
+                    "nix_function:"
+                ):
                     key_symbols.append(e.target)
             # Limit
             key_symbols = sorted(set(key_symbols))[:20]
@@ -387,11 +633,28 @@ class QueryEngine:
             else:
                 risk = RiskLevel.high
 
+            # Why: for each affected node reachable via dependency edges, the chain.
+            try:
+                _, dep_entries = self._dependency_closure(
+                    node_id, max_depth, reverse=True
+                )
+            except KeyError:
+                dep_entries = []
+            affected_ids = {n.id for n in blast.nodes}
+            evidence = [
+                ImpactEvidence(node_id=n.node.id, steps=n.steps)
+                for n in dep_entries
+                if n.node.id in affected_ids
+            ]
+            # Keep the response compact: cap the why-chains.
+            evidence = evidence[:100]
+
             return ImpactReport(
                 target=node_id,
                 affected_modules=affected_modules,
                 affected_options=affected_options,
                 affected_files=affected_files,
+                evidence=evidence,
                 risk_level=risk,
                 generation_id=gen,
             )
@@ -436,7 +699,11 @@ class QueryEngine:
                             declared_in = edge.source.removeprefix("nix:")
                     elif edge.type == EdgeType.sets:
                         src_node = self.db.get_node(edge.source)
-                        path = src_node.path if src_node and src_node.path else edge.source.removeprefix("nix:")
+                        path = (
+                            src_node.path
+                            if src_node and src_node.path
+                            else edge.source.removeprefix("nix:")
+                        )
                         defined_in.append(path)
                         if edge.metadata.get("conditional"):
                             conditional_sets.append(path)
@@ -495,7 +762,9 @@ class QueryEngine:
         """Return current graph status."""
 
         def _compute() -> StatusResponse:
-            mode = SyncMode.hybrid if shutil.which("nix") is not None else SyncMode.static
+            mode = (
+                SyncMode.hybrid if shutil.which("nix") is not None else SyncMode.static
+            )
             total_nodes = self.db.count_nodes()
             total_edges = self.db.count_edges()
             uptime = time.monotonic() - self._start_time
@@ -504,7 +773,6 @@ class QueryEngine:
             dirty = self.db.get_dirty_files()
             sync_progress = None
             if dirty:
-                total = self.db.get_all_nodes()
                 # total files with file_state
                 total_files = len([n for n in self.db.get_all_nodes() if n.path])
                 # For now, sync_progress is (remaining dirty, total)
@@ -523,10 +791,15 @@ class QueryEngine:
                 total_edges=total_edges,
                 uptime=uptime,
                 sync_progress=sync_progress,
+                queries_served=self._stats_queries,
+                tokens_estimated_saved=self._bytes_not_reread // 4,
                 generation_id=gen,
             )
 
-        return self._cached(("status",), _compute)
+        result = _compute()
+        # status must be fresh (stats change each call), so don't cache it.
+        self._note_query("status", result)
+        return result
 
     def refresh(self) -> StatusResponse:
         """Full rescan of the repository (blocking)."""
@@ -570,14 +843,20 @@ class QueryEngine:
 
     # ---------------------------------------------------------------- packages (mock)
 
-    def list_packages(self, query: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    def list_packages(
+        self, query: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         """List packages from ``package_index`` (mock)."""
 
         def _compute() -> list[dict[str, Any]]:
             pkgs = self.db.get_packages()
             if query:
                 q = query.lower()
-                pkgs = [p for p in pkgs if q in p["attribute"].lower() or q in p["name"].lower()]
+                pkgs = [
+                    p
+                    for p in pkgs
+                    if q in p["attribute"].lower() or q in p["name"].lower()
+                ]
             return pkgs[:limit]
 
         return self._cached(("list_packages", query, limit), _compute)

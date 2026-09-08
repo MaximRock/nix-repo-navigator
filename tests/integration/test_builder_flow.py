@@ -145,10 +145,44 @@ def test_e2e_nested_import_normalisation(tmp_path: Path) -> None:
     assert db.get_node("nix:modules/a.nix") is not None
     assert db.get_node("nix:modules/b.nix") is not None
     edges = db.get_all_edges()
-    assert any(e.source == "nix:modules/a.nix" and e.target == "nix:modules/b.nix" for e in edges)
+    assert any(
+        e.source == "nix:modules/a.nix" and e.target == "nix:modules/b.nix"
+        for e in edges
+    )
     # No placeholder ./b.nix
     assert db.get_node("nix:modules/./b.nix") is None
     assert db.get_node("nix:./b.nix") is None
+
+
+def test_e2e_twopass_discovers_referenced_python_on_first_run(tmp_path: Path) -> None:
+    # Repo: a.nix references scripts/tool.py via home.file. The .py is NOT in
+    # .config/, so the Nix-first rule only accepts it through the graph
+    # (configures edge). Two-pass bulk index must discover it on run 1.
+    _write(
+        tmp_path / "b.nix",
+        """
+        {
+          home.file."scripts/tool.py".source = ./scripts/tool.py;
+        }
+        """,
+    )
+    _write(
+        tmp_path / "scripts" / "tool.py",
+        "def run():\n    return 42\n",
+    )
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path, plugins=["python"])
+    stats = index_repo(tmp_path, db, g, config=cfg)
+
+    # First run already picks up the referenced python file.
+    assert db.get_node("nix:b.nix") is not None
+    assert db.get_node("file:scripts/tool.py") is not None
+    assert db.get_node("py_func:scripts/tool.py:run") is not None
+    # Exactly one generation bump (cache invalidation on both passes).
+    assert stats["generation"] == 1
 
 
 def test_e2e_conditional_and_priority(tmp_path: Path) -> None:

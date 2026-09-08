@@ -6,13 +6,18 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from repo_navigator.config import Config
 from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.indexer.cascade import cascade_dirty
 from repo_navigator.indexer.hash_engine import ast_hash, content_hash, merkle_hash
 from repo_navigator.models.file_state import FileState
-from repo_navigator.parsers.registry import get_parser_for_file, safe_parse
+from repo_navigator.parsers.registry import (
+    get_parser_for_file,
+    safe_parse,
+    should_parse_file,
+)
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +27,9 @@ def _lang_for_path(path: str | Path) -> str:
     return parser.language if parser is not None else "unknown"
 
 
-def _compute_merkle(db: Database, nx_graph: NxGraph, path: str, file_ast_hash: str) -> str:
+def _compute_merkle(
+    db: Database, nx_graph: NxGraph, path: str, file_ast_hash: str
+) -> str:
     """Compute merkle for *path* from its direct imports."""
     # Find direct dependencies via imports edges
     source_id = f"nix:{path}"
@@ -54,7 +61,11 @@ def _compute_merkle(db: Database, nx_graph: NxGraph, path: str, file_ast_hash: s
 
     # Fallback: DB scan
     for edge in db.get_all_edges():
-        if edge.source == source_id and edge.type.value == "imports" and edge.target.startswith("nix:"):
+        if (
+            edge.source == source_id
+            and edge.type.value == "imports"
+            and edge.target.startswith("nix:")
+        ):
             dep_path = edge.target.removeprefix("nix:")
             dep_state = db.get_file_state(dep_path)
             if dep_state is not None and dep_state.merkle_hash is not None:
@@ -74,11 +85,13 @@ class UpdateEngine:
         nx_graph: NxGraph,
         builder: GraphBuilder | None = None,
         root: Path | None = None,
+        config: Config | None = None,
     ) -> None:
         self.db = db
         self.nx_graph = nx_graph
         self.builder = builder or GraphBuilder(db, nx_graph)
         self.root = Path(root) if root is not None else Path.cwd()
+        self.config = config
 
     # ------------------------------------------------------------------ core
 
@@ -115,6 +128,17 @@ class UpdateEngine:
         except Exception as exc:
             log.warning("process_file: cannot read %s: %s", path_str, exc)
             return {"changed": False, "reason": "read_error", "affected": []}
+
+        # Nix-first gate (tier 1+): only parse files relevant to the graph.
+        # If the file lost its reference, drop its state/graph entry.
+        if getattr(get_parser_for_file(store_path), "tier", 0) > 0:
+            relevant = should_parse_file(
+                store_path, graph=self.nx_graph, config=self.config
+            )
+            if not relevant:
+                if self.db.get_file_state(store_path) is not None:
+                    return self.process_deleted_file(path_str)
+                return {"changed": False, "reason": "not_relevant", "affected": []}
 
         new_content_hash = content_hash(content)
         old_state = self.db.get_file_state(store_path)
@@ -199,7 +223,9 @@ class UpdateEngine:
                     )
                 self.db._conn.execute("PRAGMA foreign_keys=OFF")
                 try:
-                    self.db._conn.execute("DELETE FROM nodes WHERE path=?", (store_path,))
+                    self.db._conn.execute(
+                        "DELETE FROM nodes WHERE path=?", (store_path,)
+                    )
                 finally:
                     self.db._conn.execute("PRAGMA foreign_keys=ON")
             self.nx_graph.apply_delta(
@@ -227,8 +253,6 @@ class UpdateEngine:
 
     async def run(self, queue) -> None:  # queue: asyncio.Queue[list[str]]
         """Consume batches from *queue* forever (for watcher integration)."""
-        import asyncio
-
         while True:
             batch = await queue.get()
             for p in batch:

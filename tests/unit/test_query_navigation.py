@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from repo_navigator.config import Config
 from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
@@ -29,18 +30,35 @@ def _setup_chain(tmp_path: Path | None = None) -> tuple[Database, NxGraph, Query
     g = NxGraph()
     builder = GraphBuilder(db, g)
     # Chain a -> b -> c -> d
-    builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]))
-    builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix")], edges=[_imports("b.nix", "c.nix")]))
-    builder.build_file("c.nix", ParseResult(nodes=[_mod("c.nix")], edges=[_imports("c.nix", "d.nix")]))
+    builder.build_file(
+        "a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")])
+    )
+    builder.build_file(
+        "b.nix", ParseResult(nodes=[_mod("b.nix")], edges=[_imports("b.nix", "c.nix")])
+    )
+    builder.build_file(
+        "c.nix", ParseResult(nodes=[_mod("c.nix")], edges=[_imports("c.nix", "d.nix")])
+    )
     builder.build_file("d.nix", ParseResult(nodes=[_mod("d.nix")], edges=[]))
     # Add option declared by b, set by c
     builder.build_file(
         "b.nix",
         ParseResult(
-            nodes=[_mod("b.nix"), RawNode(id="nix_option:services.foo.enable", type=NodeType.nix_option, name="services.foo.enable")],
+            nodes=[
+                _mod("b.nix"),
+                RawNode(
+                    id="nix_option:services.foo.enable",
+                    type=NodeType.nix_option,
+                    name="services.foo.enable",
+                ),
+            ],
             edges=[
                 _imports("b.nix", "c.nix"),
-                RawEdge(source="nix:b.nix", target="nix_option:services.foo.enable", type=EdgeType.declares),
+                RawEdge(
+                    source="nix:b.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.declares,
+                ),
             ],
         ),
     )
@@ -50,7 +68,11 @@ def _setup_chain(tmp_path: Path | None = None) -> tuple[Database, NxGraph, Query
             nodes=[_mod("c.nix")],
             edges=[
                 _imports("c.nix", "d.nix"),
-                RawEdge(source="nix:c.nix", target="nix_option:services.foo.enable", type=EdgeType.sets),
+                RawEdge(
+                    source="nix:c.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.sets,
+                ),
             ],
         ),
     )
@@ -111,7 +133,12 @@ class TestPath:
     def test_path_exists(self) -> None:
         _, _, engine = _setup_chain()
         steps = engine.path("nix:a.nix", "nix:d.nix")
-        assert [s.node.id for s in steps] == ["nix:a.nix", "nix:b.nix", "nix:c.nix", "nix:d.nix"]
+        assert [s.node.id for s in steps] == [
+            "nix:a.nix",
+            "nix:b.nix",
+            "nix:c.nix",
+            "nix:d.nix",
+        ]
         assert steps[0].edge_in is None
         assert steps[1].edge_in is not None
 
@@ -146,9 +173,13 @@ class TestFindSymbol:
         db, g, engine = _setup_chain()
         # Add a node with distinctive name
         from repo_navigator.models.nodes import Node
-        from datetime import UTC, datetime
 
-        n = Node(id="nix_option:services.myapp.enable", type=NodeType.nix_option, name="services.myapp.enable", lang="nix")
+        n = Node(
+            id="nix_option:services.myapp.enable",
+            type=NodeType.nix_option,
+            name="services.myapp.enable",
+            lang="nix",
+        )
         db.upsert_node(n)
         g.apply_delta(added_nodes=[n])
         results = engine.find_symbol("myapp", fuzzy=False)
@@ -163,6 +194,70 @@ class TestFindSymbol:
         _, _, engine = _setup_chain()
         results = engine.find_symbol("a.nix", lang="nix", fuzzy=True, limit=5)
         assert all(r.lang == "nix" for r in results)
+
+    def test_find_node_type_filter(self) -> None:
+        db, g, engine = _setup_chain()
+        from repo_navigator.models.nodes import Node
+
+        for node_type, name in [
+            (NodeType.py_function, "run"),
+            (NodeType.py_class, "Runner"),
+        ]:
+            n = Node(
+                id=f"python:scripts/x.py:{name}",
+                type=node_type,
+                name=name,
+                path="scripts/x.py",
+                lang="python",
+            )
+            db.upsert_node(n)
+            g.apply_delta(added_nodes=[n])
+        funcs = engine.find_symbol("x.py", node_type="py_function", fuzzy=True)
+        assert all(r.type == NodeType.py_function for r in funcs)
+        classes = engine.find_symbol(
+            "x.py", node_type=["py_function", "py_class"], fuzzy=True
+        )
+        assert len(classes) == 2
+
+    def test_find_path_contains_filter(self, tmp_path: Path) -> None:
+        db, g, engine = _setup_chain()
+        from repo_navigator.models.nodes import Node
+
+        n1 = Node(
+            id="py_func:modules/mod.py:f",
+            type=NodeType.py_function,
+            name="f",
+            path="modules/mod.py",
+            lang="python",
+        )
+        n2 = Node(
+            id="py_func:scripts/tool.py:g",
+            type=NodeType.py_function,
+            name="g",
+            path="scripts/tool.py",
+            lang="python",
+        )
+        db.upsert_node(n1)
+        db.upsert_node(n2)
+        g.apply_delta(added_nodes=[n1, n2])
+        results = engine.find_symbol(":", path_contains="scripts", fuzzy=True)
+        assert all("scripts" in (r.path or "") for r in results)
+        assert all(r.id != "py_func:modules/mod.py:f" for r in results)
+
+    def test_find_id_prefix_filter(self) -> None:
+        _, _, engine = _setup_chain()
+        results = engine.find_symbol(
+            "nix", id_prefix="nix_option:", fuzzy=True, limit=20
+        )
+        assert all(r.id.startswith("nix_option:") for r in results)
+
+    def test_find_offset_pagination(self) -> None:
+        _, _, engine = _setup_chain()
+        all_results = engine.find_symbol("nix", fuzzy=True, limit=100)
+        if len(all_results) >= 2:
+            page2 = engine.find_symbol("nix", fuzzy=True, limit=1, offset=1)
+            assert len(page2) == 1
+            assert page2[0].id == all_results[1].id
 
 
 class TestSummarizeModule:
@@ -191,9 +286,116 @@ class TestImpactAnalysis:
         db, g, engine = _setup_chain()
         # Isolated node
         builder = GraphBuilder(db, g)
-        builder.build_file("isolated.nix", ParseResult(nodes=[_mod("isolated.nix")], edges=[]))
+        builder.build_file(
+            "isolated.nix", ParseResult(nodes=[_mod("isolated.nix")], edges=[])
+        )
         report = engine.impact_analysis("nix:isolated.nix")
         assert report.risk_level == "low"
+
+    def test_impact_evidence_chains(self) -> None:
+        _, _, engine = _setup_chain()
+        report = engine.impact_analysis("nix:d.nix", max_depth=3)
+        ids = [e.node_id for e in report.evidence]
+        assert "nix:c.nix" in ids
+        assert "nix:b.nix" in ids
+        # The chain for c should start at d (root) and cross the imports edge d->c
+        c_ev = next(e for e in report.evidence if e.node_id == "nix:c.nix")
+        assert c_ev.steps
+        assert c_ev.steps[0].node.id == "nix:d.nix"
+        assert c_ev.steps[0].edge_in is None
+        assert c_ev.steps[1].node.id == "nix:c.nix"
+        assert c_ev.steps[1].edge_in is not None
+        assert c_ev.steps[1].edge_in.type == EdgeType.imports
+        assert c_ev.steps[1].depth == 1
+
+
+class TestDependenciesClosure:
+    def test_dependencies_forward(self) -> None:
+        _, _, engine = _setup_chain()
+        report = engine.dependencies("nix:a.nix", max_depth=3)
+        ids = {e.node.id for e in report.depends_on}
+        assert ids == {"nix:b.nix", "nix:c.nix", "nix:d.nix"}
+        by_id = {e.node.id: e for e in report.depends_on}
+        assert by_id["nix:b.nix"].depth == 1
+        assert by_id["nix:c.nix"].depth == 2
+        assert by_id["nix:d.nix"].depth == 3
+
+    def test_dependents_reverse(self) -> None:
+        _, _, engine = _setup_chain()
+        report = engine.dependents("nix:d.nix", max_depth=3)
+        ids = {e.node.id for e in report.dependents}
+        assert ids == {"nix:c.nix", "nix:b.nix", "nix:a.nix"}
+
+    def test_closure_depth_limit(self) -> None:
+        _, _, engine = _setup_chain()
+        report = engine.dependencies("nix:a.nix", max_depth=2)
+        ids = {e.node.id for e in report.depends_on}
+        assert "nix:c.nix" in ids
+        assert "nix:d.nix" not in ids
+
+    def test_closure_missing_node(self) -> None:
+        _, _, engine = _setup_chain()
+        with pytest.raises(KeyError):
+            engine.dependencies("nix:missing.nix")
+        with pytest.raises(ValueError):
+            engine.dependents("nix:a.nix", max_depth=11)
+
+    def test_closure_excludes_nondependency_edges(self) -> None:
+        _, _, engine = _setup_chain()
+        # declares edge b->option must not appear in the closure
+        report = engine.dependencies("nix:b.nix", max_depth=3)
+        ids = {e.node.id for e in report.depends_on}
+        assert all("services.foo" not in i for i in ids)
+
+
+class TestBenefitReport:
+    def test_report_empty(self) -> None:
+        _, _, engine = _setup_chain()
+        r = engine.report()
+        assert r.queries_served == 0
+        assert r.queries_by_tool == {}
+        assert r.files_tracked == 0
+        assert r.bytes_not_reread == 0
+        assert r.tokens_estimated_saved == 0
+        assert r.generation_id >= 1
+
+    def test_report_counts_by_tool(self) -> None:
+        _, _, engine = _setup_chain()
+        engine.observe("nix:b.nix")
+        engine.dependencies("nix:a.nix", max_depth=2)
+        engine.status()
+        r = engine.report()
+        assert r.queries_served == 3
+        assert r.queries_by_tool["observe"] == 1
+        assert r.queries_by_tool["dependencies"] == 1
+        assert r.queries_by_tool["status"] == 1
+
+    def test_report_tracks_source_bytes(self, tmp_path: Path) -> None:
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        builder = GraphBuilder(db, g)
+        content = b"option = 1; # exactly forty bytes here.........\n"
+        src = tmp_path / "a.nix"
+        src.write_bytes(content)
+        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[]))
+        engine = QueryEngine(db, g, config=Config(root=tmp_path, _env_file=None))
+        engine.observe("nix:a.nix")
+        r = engine.report()
+        assert r.files_tracked == 1
+        assert r.bytes_not_reread == len(content)
+        assert r.tokens_estimated_saved == len(content) // 4
+        # Repeated lookups do not double-count the same file.
+        engine.observe("nix:a.nix")
+        assert engine.report().bytes_not_reread == len(content)
+
+    def test_status_exposes_summary_line(self) -> None:
+        _, _, engine = _setup_chain()
+        engine.observe("nix:b.nix")
+        status = engine.status()
+        # status excludes itself: reports the count as of the previous call
+        assert status.queries_served == 1
+        assert status.tokens_estimated_saved >= 0
 
 
 class TestCache:

@@ -15,26 +15,45 @@ from repo_navigator.config import Config
 from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
-from repo_navigator.parsers.registry import get_parser_for_file, safe_parse, should_parse_file
+from repo_navigator.parsers.registry import (
+    get_parser_for_file,
+    safe_parse,
+    should_parse_file,
+)
 
 log = logging.getLogger(__name__)
 
 # Directories that are never indexed (even if they contain .nix files).
-SKIP_DIRS = {".git", ".venv", ".repo-navigator", ".direnv", "__pycache__", "result", ".mypy_cache", ".pytest_cache", "target", "node_modules"}
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    ".repo-navigator",
+    ".direnv",
+    "__pycache__",
+    "result",
+    ".mypy_cache",
+    ".pytest_cache",
+    "target",
+    "node_modules",
+}
 
 
 def collect_files(
     root: Path,
     config: Config | None = None,
     graph: NxGraph | None = None,
+    tiers: set[int] | None = None,
 ) -> list[Path]:
     """Recursively find files under *root* that should be parsed.
 
     - If *root* is a file, returns ``[root]`` when a parser exists and
-      ``should_parse_file`` allows it.
+      the plugin is enabled. Single-file mode is an explicit request, so
+      the Nix-first reference rule is bypassed.
     - If *root* is a directory, walks it breadth-first, skipping
       directories in ``SKIP_DIRS`` and hidden ``.*`` entries (except
       ``.config`` which is required for Nix-first tier 1–3).
+    - *tiers* restricts collection to parsers whose ``tier`` is in the set
+      (used for the two-pass bulk index: pass 1 = ``{0}`` Nix, pass 2 = ``{1,2,3}``).
     """
     root = Path(root)
 
@@ -42,6 +61,23 @@ def collect_files(
         parser = get_parser_for_file(root)
         if parser is None:
             return []
+        if tiers is not None and getattr(parser, "tier", 0) not in tiers:
+            return []
+        if not getattr(parser, "enabled", True):
+            return []
+        if getattr(parser, "tier", 0) > 0:
+            # Explicit single-file request: plugin must be enabled, but no
+            # Nix reference / .config/ requirement.
+            if (
+                config is not None
+                and hasattr(config, "plugins")
+                and parser.language not in config.plugins
+            ):
+                return []
+            return [root]
+        if not should_parse_file(root, graph=graph, config=config):
+            return []
+        return [root]
         if not should_parse_file(root, graph=graph, config=config):
             return []
         return [root]
@@ -75,6 +111,8 @@ def collect_files(
                 parser = get_parser_for_file(entry)
                 if parser is None:
                     continue
+                if tiers is not None and getattr(parser, "tier", 0) not in tiers:
+                    continue
                 if not should_parse_file(entry, graph=graph, config=config):
                     continue
                 found.append(entry)
@@ -94,6 +132,12 @@ def index_repo(
     The graph is fully replaced for every discovered file (via
     ``GraphBuilder.build_all``) and stale file nodes (deleted from
     filesystem) are purged.
+
+    Two-pass bulk index: Nix (tier 0) is parsed first so that
+    ``configures``/``generates`` edges exist — then tier 1-3 files are
+    collected using the populated graph. This makes a ``home.file``
+    reference discoverable on the very first run (no re-index needed).
+    ``generation_id`` is incremented exactly once, after both passes.
     """
     root = Path(root).resolve()
     start = time.monotonic()
@@ -101,52 +145,54 @@ def index_repo(
     # Ensure DB is ready.
     db.init_db()
 
-    # 1. Discover files
-    files = collect_files(root, config=config, graph=nx_graph)
-
-    # 2. Parse each file -> ParseResult, using relative path for stable IDs.
-    items: list[tuple[str, object]] = []  # (rel_path, ParseResult)
     is_single_file = root.is_file()
-    for abs_path in files:
-        if is_single_file:
-            # Root itself is the file; use its name (or relative to parent if we want dir prefix)
-            # For consistency with CLI single-file mode, use name relative to parent.
-            try:
-                rel = abs_path.relative_to(root.parent).as_posix()
-            except ValueError:
-                rel = abs_path.name
-        else:
-            try:
-                rel = abs_path.relative_to(root).as_posix()
-            except ValueError:
-                rel = abs_path.as_posix()
-        try:
-            content = abs_path.read_text(encoding="utf-8")
-        except Exception as exc:
-            log.warning("Skipping unreadable file %s: %s", abs_path, exc)
-            continue
-        # Use relative path for parser so IDs are repo-relative.
-        parse_result = safe_parse(Path(rel), content)
-        items.append((rel, parse_result))  # type: ignore[arg-type]
-
-    # 3. Purge stale files (previously indexed but no longer on disk).
-    # This must happen before build_all so generation is not double-counted
-    # for the bulk operation.  We do it as a single batch delete.
-    old_paths = {n.path for n in db.get_all_nodes() if n.path is not None}
-    new_paths = {rel for rel, _ in items}
-    stale_paths = old_paths - new_paths
-    if stale_paths:
-        _purge_paths(db, nx_graph, stale_paths)
-
-    # 4. Bulk build
     builder = GraphBuilder(db, nx_graph)
-    # builder expects list[tuple[Path|str, ParseResult]]
-    builder.build_all([(Path(p), pr) for p, pr in items])  # type: ignore[arg-type]
 
-    # 5. Flake inputs (if flake.lock exists)
+    items: list[tuple[str, object]] = []  # (rel_path, ParseResult)
+
+    if is_single_file:
+        # Single-file explicit request: no two-pass needed.
+        files = collect_files(root, config=config, graph=nx_graph)
+        items = _parse_files(root, files, is_single_file=True)
+    else:
+        # Pass 1: Nix (tier 0) — build the graph first.
+        nix_files = collect_files(root, config=config, graph=nx_graph, tiers={0})
+        nix_items = _parse_files(root, nix_files, is_single_file=False)
+        items.extend(nix_items)
+        builder.build_all(
+            [(Path(p), pr) for p, pr in nix_items],  # type: ignore[arg-type]
+            increment_generation=False,
+        )
+
+        # Pass 2: tier 1-3 — the graph now knows configures/generates edges.
+        plugin_files = collect_files(
+            root, config=config, graph=nx_graph, tiers={1, 2, 3}
+        )
+        plugin_items = _parse_files(root, plugin_files, is_single_file=False)
+        items.extend(plugin_items)
+
+    # Purge stale files (previously indexed but no longer on disk).
+    if not is_single_file:
+        old_paths = {n.path for n in db.get_all_nodes() if n.path is not None}
+        new_paths = {rel for rel, _ in items}
+        stale_paths = old_paths - new_paths
+        if stale_paths:
+            _purge_paths(db, nx_graph, stale_paths)
+
+    # Build the plugin pass and bump generation exactly once at the end.
+    if is_single_file:
+        builder.build_all([(Path(p), pr) for p, pr in items])  # type: ignore[arg-type]
+    else:
+        builder.build_all(
+            [(Path(p), pr) for p, pr in plugin_items],  # type: ignore[arg-type]
+            increment_generation=False,
+        )
+        db.inc_generation_id()
+
+    # Flake inputs (if flake.lock exists)
     _index_flake_inputs(root, db, nx_graph)
 
-    # 6. Package index (mock, from package_ref nodes)
+    # Package index (mock, from package_ref nodes)
     try:
         from repo_navigator.nix.package_index import PackageIndexBuilder
 
@@ -165,12 +211,40 @@ def index_repo(
     }
 
 
+def _parse_files(
+    root: Path, files: list[Path], is_single_file: bool
+) -> list[tuple[str, object]]:
+    """Parse *files* into ``(rel_path, ParseResult)`` pairs for *root*."""
+    items: list[tuple[str, object]] = []
+    for abs_path in files:
+        if is_single_file:
+            try:
+                rel = abs_path.relative_to(root.parent).as_posix()
+            except ValueError:
+                rel = abs_path.name
+        else:
+            try:
+                rel = abs_path.relative_to(root).as_posix()
+            except ValueError:
+                rel = abs_path.as_posix()
+        try:
+            content = abs_path.read_text(encoding="utf-8")
+        except Exception as exc:
+            log.warning("Skipping unreadable file %s: %s", abs_path, exc)
+            continue
+        parse_result = safe_parse(Path(rel), content)
+        items.append((rel, parse_result))
+    return items
+
+
 def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
     """Parse ``flake.lock`` and upsert flake inputs + graph nodes."""
     lock_path = root / "flake.lock" if root.is_dir() else root.parent / "flake.lock"
     if not lock_path.is_file():
         # Also try root itself if it's a file's parent already checked
-        alt = Path(root).resolve().parent / "flake.lock" if Path(root).is_file() else None
+        alt = (
+            Path(root).resolve().parent / "flake.lock" if Path(root).is_file() else None
+        )
         if alt is None or not alt.is_file():
             return
         lock_path = alt
@@ -200,18 +274,28 @@ def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
                 name=inp.name,
                 path=None,
                 lang="nix",
-                metadata={"url": inp.url or "", "rev": inp.rev or "", "type": inp.type or ""},
+                metadata={
+                    "url": inp.url or "",
+                    "rev": inp.rev or "",
+                    "type": inp.type or "",
+                },
             )
             try:
                 db.upsert_node(node)
                 nx_graph.apply_delta(added_nodes=[node])
             except Exception:
-                log.debug("Failed to upsert flake_input node %s", node_id, exc_info=True)
+                log.debug(
+                    "Failed to upsert flake_input node %s", node_id, exc_info=True
+                )
         else:
             # Update existing node's metadata
             existing = db.get_node(node_id)
             if existing is not None:
-                existing.metadata = {"url": inp.url or "", "rev": inp.rev or "", "type": inp.type or ""}
+                existing.metadata = {
+                    "url": inp.url or "",
+                    "rev": inp.rev or "",
+                    "type": inp.type or "",
+                }
                 try:
                     db.upsert_node(existing)
                     nx_graph.apply_delta(added_nodes=[existing])
@@ -219,14 +303,19 @@ def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
                     pass
     # Purge stale flake inputs (those in DB but not in current lock)
     try:
-        existing_inputs = {row["name"] for row in db._conn.execute("SELECT name FROM flake_inputs").fetchall()}
+        existing_inputs = {
+            row["name"]
+            for row in db._conn.execute("SELECT name FROM flake_inputs").fetchall()
+        }
         current_names = {inp.name for inp in inputs}
         stale = existing_inputs - current_names
         for name in stale:
             try:
                 with db._lock, db.transaction():
                     db._conn.execute("DELETE FROM flake_inputs WHERE name=?", (name,))
-                    db._conn.execute("DELETE FROM nodes WHERE id=?", (f"flake_input:{name}",))
+                    db._conn.execute(
+                        "DELETE FROM nodes WHERE id=?", (f"flake_input:{name}",)
+                    )
                 nx_graph.apply_delta(removed_node_ids=[f"flake_input:{name}"])
             except Exception:
                 pass

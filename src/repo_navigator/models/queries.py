@@ -58,6 +58,32 @@ class PathStep(BaseModel):
     depth: int
 
 
+class DependencyEntry(BaseModel):
+    """A node reachable in a closure query, with the evidence chain from target."""
+
+    node: Node
+    steps: list[PathStep] = Field(default_factory=list)  # target -> ... -> this node
+    depth: int = 0
+
+
+class DependenciesReport(BaseModel):
+    """``dependencies`` — what *target* (transitively) depends on."""
+
+    target: str
+    max_depth: int
+    depends_on: list[DependencyEntry] = Field(default_factory=list)
+    generation_id: int
+
+
+class DependentsReport(BaseModel):
+    """``dependents`` — what (transitively) depends on *target*."""
+
+    target: str
+    max_depth: int
+    dependents: list[DependencyEntry] = Field(default_factory=list)
+    generation_id: int
+
+
 class OptionInfo(BaseModel):
     """``introspect_option`` — static declaration + optional cached value."""
 
@@ -85,6 +111,13 @@ class EvalResult(BaseModel):
     generation_id: int
 
 
+class ImpactEvidence(BaseModel):
+    """One affected node plus the edge chain explaining *why* it is impacted."""
+
+    node_id: str
+    steps: list[PathStep] = Field(default_factory=list)  # target -> ... -> node_id
+
+
 class ImpactReport(BaseModel):
     """``impact_analysis`` — what a change to ``target`` would affect."""
 
@@ -92,6 +125,7 @@ class ImpactReport(BaseModel):
     affected_modules: list[str] = Field(default_factory=list)
     affected_options: list[str] = Field(default_factory=list)
     affected_files: list[str] = Field(default_factory=list)
+    evidence: list[ImpactEvidence] = Field(default_factory=list)
     risk_level: RiskLevel = RiskLevel.low
     generation_id: int
 
@@ -114,6 +148,24 @@ class StatusResponse(BaseModel):
     total_edges: int
     uptime: float
     sync_progress: tuple[int, int] | None = None  # (processed, total) during bulk sync
+    queries_served: int = 0
+    tokens_estimated_saved: int = 0
+    generation_id: int
+
+
+class BenefitReport(BaseModel):
+    """``repo_navigator_report`` — how many queries were served and tokens saved.
+
+    Savings estimate: bytes of source files the agent did NOT have to re-read
+    (deduplicated across the session), divided by 4.
+    """
+
+    queries_served: int = 0
+    queries_by_tool: dict[str, int] = Field(default_factory=dict)
+    files_tracked: int = 0  # unique source files never re-read by the agent
+    bytes_not_reread: int = 0
+    tokens_estimated_saved: int = 0  # bytes_not_reread // 4
+    uptime_seconds: float = 0.0
     generation_id: int
 
 

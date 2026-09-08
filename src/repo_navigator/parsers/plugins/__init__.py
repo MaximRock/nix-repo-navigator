@@ -2,3 +2,4 @@
 
 # Import to register plugins
 from repo_navigator.parsers.plugins import kdl  # noqa: F401
+from repo_navigator.parsers.plugins import python  # noqa: F401

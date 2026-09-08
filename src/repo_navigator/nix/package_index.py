@@ -25,7 +25,11 @@ def _mock_package_info(attribute: str) -> dict[str, Any]:
         "name": short,
         "version": version,
         "store_path": store_path,
-        "meta": {"description": f"Mock package for {attribute}", "attribute": attribute, "mock": True},
+        "meta": {
+            "description": f"Mock package for {attribute}",
+            "attribute": attribute,
+            "mock": True,
+        },
     }
 
 
@@ -48,10 +52,13 @@ class PackageIndexBuilder:
 
         Returns number of packages indexed.
         """
-        # Collect distinct package attributes from nodes
+        # Collect distinct package attributes from nodes.
+        # Only ``package:*`` nodes count — plugin languages emit ``package_ref``
+        # for their own imports (e.g. ``py_module:os``), which are NOT nix
+        # packages and must not pollute the index.
         package_attrs: set[str] = set()
         for node in self.db.get_all_nodes():
-            if node.type.value == "package_ref":
+            if node.type.value == "package_ref" and node.id.startswith("package:"):
                 # id is package:<attr>
                 attr = node.id.removeprefix("package:")
                 package_attrs.add(attr)
@@ -70,7 +77,10 @@ class PackageIndexBuilder:
             # Collect used_by: which modules use this package (via uses_package edge)
             used_by: list[str] = []
             for edge in self.db.get_all_edges():
-                if edge.type.value == "uses_package" and edge.target == f"package:{attr}":
+                if (
+                    edge.type.value == "uses_package"
+                    and edge.target == f"package:{attr}"
+                ):
                     # source is nix:module
                     src_node = self.db.get_node(edge.source)
                     if src_node and src_node.path:
@@ -109,22 +119,35 @@ class PackageIndexBuilder:
 
         # Purge stale packages (those in DB but no longer referenced)
         try:
-            existing = {row["attribute"] for row in self.db._conn.execute("SELECT attribute FROM package_index").fetchall()}
+            existing = {
+                row["attribute"]
+                for row in self.db._conn.execute(
+                    "SELECT attribute FROM package_index"
+                ).fetchall()
+            }
             stale = existing - package_attrs
             for attr in stale:
                 with self.db._lock, self.db.transaction():
-                    self.db._conn.execute("DELETE FROM package_index WHERE attribute=?", (attr,))
+                    self.db._conn.execute(
+                        "DELETE FROM package_index WHERE attribute=?", (attr,)
+                    )
         except Exception:
             pass
 
         return count
 
-    def list_packages(self, limit: int = 50, query: str | None = None) -> list[dict[str, Any]]:
+    def list_packages(
+        self, limit: int = 50, query: str | None = None
+    ) -> list[dict[str, Any]]:
         """List packages, optionally filtered by *query* substring."""
         all_pkgs = self.db.get_packages()
         if query:
             q = query.lower()
-            all_pkgs = [p for p in all_pkgs if q in p["attribute"].lower() or q in p["name"].lower()]
+            all_pkgs = [
+                p
+                for p in all_pkgs
+                if q in p["attribute"].lower() or q in p["name"].lower()
+            ]
         return all_pkgs[:limit]
 
     def get_package(self, attribute: str) -> dict[str, Any] | None:

@@ -27,6 +27,14 @@ class Config(BaseSettings):
         default_factory=list,
         description="Enabled plugin languages; [] = Nix only.",
     )
+    parse_unreferenced: bool = Field(
+        default=False,
+        description=(
+            "Parse every file of enabled plugins even when it is not "
+            "referenced by Nix (no .config/, no configures/generates edge). "
+            "Deliberate universality for Python projects with a nix flake."
+        ),
+    )
     db_path: Path | None = Field(
         default=None,
         description="SQLite path; defaults to <root>/.repo-navigator/repo-navigator.db.",

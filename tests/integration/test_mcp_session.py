@@ -6,9 +6,6 @@ verifies generation_id and tool schemas.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 from repo_navigator.graph.builder import GraphBuilder
@@ -39,9 +36,20 @@ def _setup_repo() -> tuple[QueryEngine, Database, NxGraph]:
         ParseResult(
             nodes=[
                 _mod("a.nix"),
-                RawNode(id="nix_option:services.foo.enable", type=NodeType.nix_option, name="services.foo.enable", metadata={"description": "foo enable", "opt_type": "bool"}),
+                RawNode(
+                    id="nix_option:services.foo.enable",
+                    type=NodeType.nix_option,
+                    name="services.foo.enable",
+                    metadata={"description": "foo enable", "opt_type": "bool"},
+                ),
             ],
-            edges=[RawEdge(source="nix:a.nix", target="nix_option:services.foo.enable", type=EdgeType.declares)],
+            edges=[
+                RawEdge(
+                    source="nix:a.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.declares,
+                )
+            ],
         ),
     )
     builder.build_file(
@@ -49,8 +57,17 @@ def _setup_repo() -> tuple[QueryEngine, Database, NxGraph]:
         ParseResult(
             nodes=[_mod("b.nix")],
             edges=[
-                RawEdge(source="nix:b.nix", target="nix_option:services.foo.enable", type=EdgeType.sets, metadata={"conditional": False}),
-                RawEdge(source="nix:b.nix", target="file:.config/foo", type=EdgeType.configures),
+                RawEdge(
+                    source="nix:b.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.sets,
+                    metadata={"conditional": False},
+                ),
+                RawEdge(
+                    source="nix:b.nix",
+                    target="file:.config/foo",
+                    type=EdgeType.configures,
+                ),
             ],
         ),
     )
@@ -59,15 +76,21 @@ def _setup_repo() -> tuple[QueryEngine, Database, NxGraph]:
         ParseResult(
             nodes=[_mod("default.nix")],
             edges=[
-                RawEdge(source="nix:default.nix", target="nix:a.nix", type=EdgeType.imports),
-                RawEdge(source="nix:default.nix", target="nix:b.nix", type=EdgeType.imports),
+                RawEdge(
+                    source="nix:default.nix", target="nix:a.nix", type=EdgeType.imports
+                ),
+                RawEdge(
+                    source="nix:default.nix", target="nix:b.nix", type=EdgeType.imports
+                ),
             ],
         ),
     )
     # Ensure file node exists for configures
     from repo_navigator.models.nodes import Node
 
-    fnode = Node(id="file:.config/foo", type=NodeType.file, name=".config/foo", path=None)
+    fnode = Node(
+        id="file:.config/foo", type=NodeType.file, name=".config/foo", path=None
+    )
     db.upsert_node(fnode)
     g.apply_delta(added_nodes=[fnode])
 
@@ -80,13 +103,15 @@ async def test_mcp_tools_list_schema() -> None:
     engine, _, _ = _setup_repo()
     server = create_mcp_server(engine=engine)
     tools = await server.list_tools()
-    # Check all 14 tools present (11 + flake + 2 packages)
+    # Check all 17 tools present (16 + report)
     names = {t.name for t in tools}
-    assert len(names) == 14
+    assert len(names) == 17
     # Check schemas: each tool should have input_schema
     for tool in tools:
         # MCP Tool model uses snake_case in Python, camelCase in JSON
-        schema = getattr(tool, "input_schema", None) or getattr(tool, "inputSchema", None)
+        schema = getattr(tool, "input_schema", None) or getattr(
+            tool, "inputSchema", None
+        )
         assert schema is not None
         # Check that tool has description
         desc = getattr(tool, "description", None)
@@ -100,11 +125,17 @@ async def test_mcp_agent_scenario() -> None:
     server = create_mcp_server(engine=engine)
 
     # 1. find_symbol for "services.foo"
-    res = await server.call_tool("repo_navigator_find_symbol", {"query": "services.foo"})
+    res = await server.call_tool(
+        "repo_navigator_find_symbol", {"query": "services.foo"}
+    )
     assert not res.is_error
     assert res.structured_content is not None
     # Should find the option
-    found = res.structured_content["result"] if "result" in res.structured_content else res.structured_content
+    found = (
+        res.structured_content["result"]
+        if "result" in res.structured_content
+        else res.structured_content
+    )
     # In our mcp wrapper, find returns list, so structured_content is {"result": [...]}
     # Extract
     if isinstance(found, dict) and "result" in found:
@@ -116,7 +147,9 @@ async def test_mcp_agent_scenario() -> None:
     assert len(found) > 0 or True  # at least not error
 
     # 2. introspect_option
-    res = await server.call_tool("repo_navigator_introspect_option", {"option_path": "services.foo.enable"})
+    res = await server.call_tool(
+        "repo_navigator_introspect_option", {"option_path": "services.foo.enable"}
+    )
     assert not res.is_error
     data = res.structured_content
     # Unwrap if needed
@@ -127,7 +160,9 @@ async def test_mcp_agent_scenario() -> None:
     assert "generation_id" in data
 
     # 3. observe a.nix
-    res = await server.call_tool("repo_navigator_observe", {"node_id": "nix:a.nix", "depth": 1})
+    res = await server.call_tool(
+        "repo_navigator_observe", {"node_id": "nix:a.nix", "depth": 1}
+    )
     assert not res.is_error
     data = res.structured_content
     if "result" in data:
@@ -136,7 +171,9 @@ async def test_mcp_agent_scenario() -> None:
     assert "generation_id" in data
 
     # 4. hop from default.nix
-    res = await server.call_tool("repo_navigator_hop", {"node_id": "nix:default.nix", "depth": 1, "width": 10})
+    res = await server.call_tool(
+        "repo_navigator_hop", {"node_id": "nix:default.nix", "depth": 1, "width": 10}
+    )
     assert not res.is_error
     data = res.structured_content
     if "result" in data:
@@ -145,7 +182,9 @@ async def test_mcp_agent_scenario() -> None:
     assert "generation_id" in data
 
     # 5. impact_analysis for b.nix
-    res = await server.call_tool("repo_navigator_impact_analysis", {"node_id": "nix:b.nix"})
+    res = await server.call_tool(
+        "repo_navigator_impact_analysis", {"node_id": "nix:b.nix"}
+    )
     assert not res.is_error
     data = res.structured_content
     if "result" in data:
@@ -183,10 +222,14 @@ async def test_mcp_path_and_blast() -> None:
     server = create_mcp_server(engine=engine)
     # path a -> b (a imports b? Actually default imports both, but a does not import b directly)
     # So path from default to b should exist
-    res = await server.call_tool("repo_navigator_path", {"source": "nix:default.nix", "target": "nix:b.nix"})
+    res = await server.call_tool(
+        "repo_navigator_path", {"source": "nix:default.nix", "target": "nix:b.nix"}
+    )
     assert not res.is_error
     # blast radius for b should include default (since default imports b)
-    res = await server.call_tool("repo_navigator_blast_radius", {"node_id": "nix:b.nix", "max_depth": 5})
+    res = await server.call_tool(
+        "repo_navigator_blast_radius", {"node_id": "nix:b.nix", "max_depth": 5}
+    )
     assert not res.is_error
     data = res.structured_content
     if "result" in data:

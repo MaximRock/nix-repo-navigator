@@ -32,7 +32,9 @@ app.add_typer(query_app, name="query")
 @app.command()
 def start(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """Start the MCP server (stdio transport)."""
     import asyncio
@@ -58,7 +60,9 @@ def start(
 @app.command()
 def status(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """Show graph size and generation."""
     from repo_navigator.config import Config
@@ -85,7 +89,9 @@ def status(
 @app.command()
 def refresh(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """Force a full rescan (alias for index)."""
     _run_index(root or Path.cwd(), db_path)
@@ -94,16 +100,34 @@ def refresh(
 @app.command("index")
 def index_cmd(
     path: Path = typer.Argument(Path("."), help="Repository root or file to index."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """Index a repository (or single file) into the graph."""
     _run_index(path, db_path)
 
 
+@app.command("report")
+def report_cmd(
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Benefit report: queries served and token savings estimate."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.report()
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    finally:
+        db.close()
+
+
 @dev_app.command("index")
 def dev_index(
     path: Path = typer.Argument(Path("."), help="Repository root or file to index."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """(dev) Index a repository (or single file) into the graph."""
     _run_index(path, db_path)
@@ -112,7 +136,9 @@ def dev_index(
 @app.command("watch")
 def watch_cmd(
     path: Path = typer.Argument(Path("."), help="Repository root to watch."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """Watch a repository for changes and incrementally update the graph."""
     asyncio.run(_run_watch(path, db_path))
@@ -121,7 +147,9 @@ def watch_cmd(
 @dev_app.command("watch")
 def dev_watch(
     path: Path = typer.Argument(Path("."), help="Repository root to watch."),
-    db_path: Path | None = typer.Option(None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."),
+    db_path: Path | None = typer.Option(
+        None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
+    ),
 ) -> None:
     """(dev) Watch a repository for changes."""
     asyncio.run(_run_watch(path, db_path))
@@ -228,12 +256,14 @@ async def _run_watch(path: Path, db_path: Path | None) -> None:
         nx_graph.rebuild(nodes=nodes, edges=edges)
 
     builder = GraphBuilder(db, nx_graph)
-    update_engine = UpdateEngine(db, nx_graph, builder=builder, root=root)
+    update_engine = UpdateEngine(db, nx_graph, builder=builder, root=root, config=cfg)
     event_router = EventRouter(debounce_ms=float(cfg.timeouts.get("debounce_ms", 500)))
 
     watcher = RepoWatcher(root, event_router, config=cfg)
     mode = watcher.start(loop=asyncio.get_running_loop())
-    typer.echo(f"watch: {root} (mode={mode}, debounce={cfg.timeouts.get('debounce_ms', 500)}ms) db={db_file}")
+    typer.echo(
+        f"watch: {root} (mode={mode}, debounce={cfg.timeouts.get('debounce_ms', 500)}ms) db={db_file}"
+    )
     typer.echo("Press Ctrl+C to stop.")
 
     # Initial index if DB is empty
@@ -253,7 +283,9 @@ async def _run_watch(path: Path, db_path: Path | None) -> None:
                     p = root / file_path
                 if p.exists():
                     result = update_engine.process_file(p)
-                    typer.echo(f"watch: {p} -> {result['reason']} affected={result['affected']}")
+                    typer.echo(
+                        f"watch: {p} -> {result['reason']} affected={result['affected']}"
+                    )
                 else:
                     # Deleted
                     result = update_engine.process_deleted_file(file_path)
@@ -269,9 +301,7 @@ async def _run_watch(path: Path, db_path: Path | None) -> None:
         typer.echo("watch: stopped")
 
 
-def _get_query_engine(
-    root: Path | None = None, db_path: Path | None = None
-):
+def _get_query_engine(root: Path | None = None, db_path: Path | None = None):
     from repo_navigator.config import Config
     from repo_navigator.graph.db import Database
     from repo_navigator.graph.nx_graph import NxGraph
@@ -365,19 +395,72 @@ def query_blast(
         db.close()
 
 
+@query_app.command("dependencies")
+def query_dependencies(
+    node_id: str = typer.Argument(..., help="Node ID"),
+    max_depth: int = typer.Option(5, help="Max depth (max 10)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Transitive closure: what this node depends on."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.dependencies(node_id, max_depth=max_depth)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except (ValueError, KeyError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
+@query_app.command("dependents")
+def query_dependents(
+    node_id: str = typer.Argument(..., help="Node ID"),
+    max_depth: int = typer.Option(5, help="Max depth (max 10)"),
+    root: Path | None = typer.Option(None, help="Repository root"),
+    db_path: Path | None = typer.Option(None, help="DB path"),
+) -> None:
+    """Transitive closure: what depends on this node."""
+    engine, db = _get_query_engine(root, db_path)
+    try:
+        result = engine.dependents(node_id, max_depth=max_depth)
+        typer.echo(json.dumps(result.model_dump(), indent=2, default=str))
+    except (ValueError, KeyError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1)
+    finally:
+        db.close()
+
+
 @query_app.command("find")
 def query_find(
     query: str = typer.Argument(..., help="Search query"),
     lang: str | None = typer.Option(None, help="Language filter"),
+    node_type: str | None = typer.Option(
+        None, help="Node type filter (e.g. nix_module)"
+    ),
+    path_contains: str | None = typer.Option(None, help="Path substring filter"),
+    id_prefix: str | None = typer.Option(None, help="Node ID prefix filter"),
     fuzzy: bool = typer.Option(False, help="Fuzzy LIKE search"),
     limit: int = typer.Option(10, help="Max results"),
+    offset: int = typer.Option(0, help="Skip first N results"),
     root: Path | None = typer.Option(None, help="Repository root"),
     db_path: Path | None = typer.Option(None, help="DB path"),
 ) -> None:
     """Full-text search for symbols."""
     engine, db = _get_query_engine(root, db_path)
     try:
-        results = engine.find_symbol(query, lang=lang, fuzzy=fuzzy, limit=limit)
+        results = engine.find_symbol(
+            query,
+            lang=lang,
+            node_type=node_type,
+            path_contains=path_contains,
+            id_prefix=id_prefix,
+            fuzzy=fuzzy,
+            limit=limit,
+            offset=offset,
+        )
         typer.echo(json.dumps([r.model_dump() for r in results], indent=2, default=str))
     finally:
         db.close()
@@ -403,7 +486,9 @@ def query_summarize(
 
 @query_app.command("option")
 def query_option(
-    option_path: str = typer.Argument(..., help="Option path (e.g. services.foo.enable)"),
+    option_path: str = typer.Argument(
+        ..., help="Option path (e.g. services.foo.enable)"
+    ),
     eval: bool = typer.Option(False, "--eval", help="Include evaluated value"),
     root: Path | None = typer.Option(None, help="Repository root"),
     db_path: Path | None = typer.Option(None, help="DB path"),
@@ -522,8 +607,7 @@ def dev_lex(path: Path) -> None:
     source = path.read_text()
     for tok in tokenize(source):
         typer.echo(
-            f"{tok.type:<18} value={tok.value!r:<26} "
-            f"line={tok.line} col={tok.col}"
+            f"{tok.type:<18} value={tok.value!r:<26} line={tok.line} col={tok.col}"
         )
 
 
@@ -531,7 +615,9 @@ def dev_lex(path: Path) -> None:
 def dev_parse(
     path: Path,
     via_instantiate: bool = typer.Option(
-        False, "--via-instantiate", help="Use nix-instantiate fallback instead of the built-in parser."
+        False,
+        "--via-instantiate",
+        help="Use nix-instantiate fallback instead of the built-in parser.",
     ),
 ) -> None:
     """Parse a .nix file and print the AST."""

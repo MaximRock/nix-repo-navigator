@@ -88,19 +88,23 @@ class GraphBuilder:
 
         self.db.inc_generation_id()
 
-    def build_all(self, items: list[tuple[Path | str, ParseResult]]) -> None:
+    def build_all(
+        self,
+        items: list[tuple[Path | str, ParseResult]],
+        increment_generation: bool = True,
+    ) -> None:
         """Bulk rebuild from *items* (full rescan).
 
         *items* is a list of ``(path, ParseResult)`` pairs.  All file-owned
         nodes/edges are replaced and the in-memory graph is rebuilt from
-        the DB snapshot.  ``generation_id`` is incremented once.
+        the DB snapshot.  ``generation_id`` is incremented once unless
+        *increment_generation* is ``False`` (used by the two-pass bulk
+        index so multiple passes bump generation exactly once).
         """
         # Collect all paths being rebuilt.
         paths = [str(p) for p, _ in items]
 
-        # Snapshot old file-owned nodes/edges for the given paths.
-        old_nodes = [n for n in self.db.get_all_nodes() if n.path in paths]
-        old_node_ids = {n.id for n in old_nodes}
+        # Snapshot old edges for the given paths (nodes are deleted by path below).
         old_edges: list[Edge] = []
         for p in paths:
             old_edges.extend(self.db.get_edges_for_file(p))
@@ -154,7 +158,8 @@ class GraphBuilder:
         all_edges = self.db.get_all_edges()
         self.nx_graph.rebuild(nodes=all_nodes, edges=all_edges)
 
-        self.db.inc_generation_id()
+        if increment_generation:
+            self.db.inc_generation_id()
 
     # ---------------------------------------------------------------- helpers
 
@@ -194,7 +199,11 @@ class GraphBuilder:
             if self.db.get_node(edge.target) is not None:
                 continue
             ph = _placeholder_for_target(edge.target)
-            if ph is not None and ph.id not in node_ids and ph.id not in placeholder_ids:
+            if (
+                ph is not None
+                and ph.id not in node_ids
+                and ph.id not in placeholder_ids
+            ):
                 placeholders.append(ph)
                 placeholder_ids.add(ph.id)
 

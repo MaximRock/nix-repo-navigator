@@ -39,8 +39,16 @@ def test_package_index_builder(tmp_path: Path) -> None:
         ParseResult(
             nodes=[_mod("a.nix")],
             edges=[
-                RawEdge(source="nix:a.nix", target="package:pkgs.ripgrep", type=EdgeType.uses_package),
-                RawEdge(source="nix:a.nix", target="package:pkgs.fd", type=EdgeType.uses_package),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="package:pkgs.ripgrep",
+                    type=EdgeType.uses_package,
+                ),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="package:pkgs.fd",
+                    type=EdgeType.uses_package,
+                ),
             ],
         ),
     )
@@ -48,7 +56,13 @@ def test_package_index_builder(tmp_path: Path) -> None:
         "b.nix",
         ParseResult(
             nodes=[_mod("b.nix")],
-            edges=[RawEdge(source="nix:b.nix", target="package:pkgs.ripgrep", type=EdgeType.uses_package)],
+            edges=[
+                RawEdge(
+                    source="nix:b.nix",
+                    target="package:pkgs.ripgrep",
+                    type=EdgeType.uses_package,
+                )
+            ],
         ),
     )
     # Create package_ref nodes for the builder's placeholders
@@ -70,10 +84,54 @@ def test_package_index_builder(tmp_path: Path) -> None:
     import json
 
     # Check used_by via direct DB query
-    row = db._conn.execute("SELECT used_by FROM package_index WHERE attribute='pkgs.ripgrep'").fetchone()
+    row = db._conn.execute(
+        "SELECT used_by FROM package_index WHERE attribute='pkgs.ripgrep'"
+    ).fetchone()
     used_by = json.loads(row[0]) if row and row[0] else []
     assert "a.nix" in used_by
     assert "b.nix" in used_by
+
+
+def test_plugin_imports_do_not_pollute_package_index(tmp_path: Path) -> None:
+    """Python imports produce ``package_ref`` nodes (``py_module:os``) which
+    are NOT nix packages and must not land in the package index."""
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    builder = GraphBuilder(db, g)
+    builder.build_file(
+        "scripts/tool.py",
+        ParseResult(
+            nodes=[_mod("scripts/tool.py")],
+            edges=[
+                RawEdge(
+                    source="nix:scripts/tool.py",
+                    target="py_module:os",
+                    type=EdgeType.python_imports,
+                ),
+                RawEdge(
+                    source="nix:scripts/tool.py",
+                    target="py_module:json",
+                    type=EdgeType.python_imports,
+                ),
+            ],
+        ),
+    )
+    from repo_navigator.models.nodes import Node
+
+    for mod in ["os", "json"]:
+        nid = f"py_module:{mod}"
+        if db.get_node(nid) is None:
+            db.upsert_node(
+                Node(
+                    id=nid, type=NodeType.package_ref, name=mod, path="scripts/tool.py"
+                )
+            )
+
+    pkg_builder = PackageIndexBuilder(db, root=tmp_path)
+    count = pkg_builder.refresh()
+    assert count == 0
+    assert db.get_packages() == []
 
 
 def test_package_index_query(tmp_path: Path) -> None:
@@ -83,8 +141,12 @@ def test_package_index_query(tmp_path: Path) -> None:
     from repo_navigator.graph.queries import QueryEngine
 
     # Insert mock packages directly
-    db.upsert_package("pkgs.ripgrep", "ripgrep", "1.0", "/nix/store/abc-ripgrep", {"desc": "x"})
-    db.upsert_package("pkgs.hello", "hello", "2.0", "/nix/store/def-hello", {"desc": "y"})
+    db.upsert_package(
+        "pkgs.ripgrep", "ripgrep", "1.0", "/nix/store/abc-ripgrep", {"desc": "x"}
+    )
+    db.upsert_package(
+        "pkgs.hello", "hello", "2.0", "/nix/store/def-hello", {"desc": "y"}
+    )
     engine = QueryEngine(db, g)
     all_pkgs = engine.list_packages()
     assert len(all_pkgs) == 2

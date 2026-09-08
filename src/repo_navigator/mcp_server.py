@@ -142,24 +142,75 @@ def create_mcp_server(
             raise ToolError(str(exc)) from exc
 
     @server.tool()
+    def repo_navigator_dependencies(node_id: str, max_depth: int = 5) -> dict[str, Any]:
+        """What *node_id* (transitively) depends on.
+
+        Args:
+            node_id: Node ID.
+            max_depth: Max depth over dependency edges (max 10, default 5).
+
+        Returns:
+            DependenciesReport dict: each entry carries the evidence chain from target.
+        """
+        try:
+            result = engine.dependencies(node_id, max_depth=max_depth)
+            return result.model_dump(mode="json")
+        except (ValueError, KeyError) as exc:
+            raise ToolError(str(exc)) from exc
+
+    @server.tool()
+    def repo_navigator_dependents(node_id: str, max_depth: int = 5) -> dict[str, Any]:
+        """What (transitively) depends on *node_id*.
+
+        Args:
+            node_id: Node ID.
+            max_depth: Max depth over reversed dependency edges (max 10, default 5).
+
+        Returns:
+            DependentsReport dict: each entry carries the evidence chain leading back to target.
+        """
+        try:
+            result = engine.dependents(node_id, max_depth=max_depth)
+            return result.model_dump(mode="json")
+        except (ValueError, KeyError) as exc:
+            raise ToolError(str(exc)) from exc
+
+    @server.tool()
     def repo_navigator_find_symbol(
         query: str,
         lang: str | None = None,
+        node_type: str | None = None,
+        path_contains: str | None = None,
+        id_prefix: str | None = None,
         fuzzy: bool = False,
         limit: int = 10,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Full-text search for symbols.
+        """Full-text search for symbols with optional structural filters.
 
         Args:
             query: Search query.
-            lang: Language filter (e.g. ``nix``).
+            lang: Language filter (e.g. ``nix``, ``python``).
+            node_type: Node type filter (e.g. ``nix_module``, ``py_function``).
+            path_contains: Substring match on the file path.
+            id_prefix: Filter by ID prefix (e.g. ``file:``, ``nix_option:``).
             fuzzy: If True use LIKE, else FTS5.
             limit: Max results (default 10).
+            offset: Skip the first N results (pagination).
 
         Returns:
             List of Node dicts.
         """
-        nodes = engine.find_symbol(query, lang=lang, fuzzy=fuzzy, limit=limit)
+        nodes = engine.find_symbol(
+            query,
+            lang=lang,
+            node_type=node_type,
+            path_contains=path_contains,
+            id_prefix=id_prefix,
+            fuzzy=fuzzy,
+            limit=limit,
+            offset=offset,
+        )
         return [n.model_dump(mode="json") for n in nodes]
 
     @server.tool()
@@ -228,6 +279,19 @@ def create_mcp_server(
         return result.model_dump(mode="json")
 
     @server.tool()
+    def repo_navigator_report() -> dict[str, Any]:
+        """Benefit report: queries served and token savings estimate.
+
+        Returns:
+            BenefitReport dict: ``queries_served``, ``queries_by_tool``,
+            ``files_tracked``, ``bytes_not_reread``,
+            ``tokens_estimated_saved`` (bytes // 4), ``uptime_seconds``
+            and ``generation_id``.
+        """
+        result = engine.report()
+        return result.model_dump(mode="json")
+
+    @server.tool()
     def repo_navigator_status() -> dict[str, Any]:
         """Graph status.
 
@@ -291,6 +355,7 @@ def create_mcp_server(
 
 
 # ------------------------------------------------------------------ CLI entry
+
 
 def _parse_args() -> Config:
     parser = argparse.ArgumentParser(description="repo-navigator MCP server (stdio)")
