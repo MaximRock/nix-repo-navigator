@@ -27,7 +27,7 @@
         "opt_type": "types.bool"
       },
       "name": "services.foo.enable",
-      "path": null,
+      "path": "mkoption_simple.nix",
       "type": "nix_option"
     }
   ]

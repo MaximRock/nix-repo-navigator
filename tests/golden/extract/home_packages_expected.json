@@ -29,7 +29,7 @@
       "lang": "nix",
       "metadata": {},
       "name": "pkgs.ripgrep",
-      "path": null,
+      "path": "home_packages.nix",
       "type": "package_ref"
     },
     {
@@ -37,7 +37,7 @@
       "lang": "nix",
       "metadata": {},
       "name": "pkgs.fd",
-      "path": null,
+      "path": "home_packages.nix",
       "type": "package_ref"
     }
   ]

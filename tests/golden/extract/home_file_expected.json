@@ -29,7 +29,7 @@
       "lang": "nix",
       "metadata": {},
       "name": ".config/foo",
-      "path": null,
+      "path": "home_file.nix",
       "type": "file"
     },
     {
@@ -37,7 +37,7 @@
       "lang": "nix",
       "metadata": {},
       "name": ".config/bar",
-      "path": null,
+      "path": "home_file.nix",
       "type": "file"
     }
   ]

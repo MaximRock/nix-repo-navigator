@@ -34,7 +34,7 @@
         "opt_type": "types.bool"
       },
       "name": "services.foo.enable",
-      "path": null,
+      "path": "mkoption_meta.nix",
       "type": "nix_option"
     },
     {
@@ -47,7 +47,7 @@
         "opt_type": "types.port"
       },
       "name": "services.foo.port",
-      "path": null,
+      "path": "mkoption_meta.nix",
       "type": "nix_option"
     }
   ]

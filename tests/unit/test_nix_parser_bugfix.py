@@ -7,6 +7,7 @@ from pathlib import Path
 from repo_navigator.parsers.nix.lexer import TokenType, tokenize
 from repo_navigator.parsers.nix.parser import parse
 from repo_navigator.parsers.nix_parser import NixParser
+from repo_navigator.models.nodes import NodeType
 
 
 class TestCommentOnlyFile:
@@ -45,6 +46,36 @@ class TestCommentOnlyFile:
         result = parser.parse(p, p.read_text())
         # должен не падать, вернуть empty (файл закомментирован)
         assert result.nodes == [] or len(result.nodes) >= 0
+
+
+class TestNodeOwnershipPath:
+    """Bug B: option/home-file/package nodes must carry their owner file path.
+
+    Without an owner, `DELETE FROM nodes WHERE path=?` never purges them
+    (e.g. a module deleting one of its options leaves a stale node behind).
+    """
+
+    CONTENT = """
+    { config, lib, pkgs, ... }:
+    {
+      options.services.foo.enable = lib.mkEnableOption "foo";
+      config = lib.mkIf config.services.foo.enable {
+        home.file.".bashrc".source = ./bashrc;
+        home.packages = [ pkgs.ripgrep ];
+      };
+    }
+    """
+
+    def test_option_file_package_nodes_have_owner_path(self) -> None:
+        parser = NixParser()
+        result = parser.parse(Path("svc.nix"), self.CONTENT)
+        types = {n.type for n in result.nodes}
+        assert NodeType.nix_option in types
+        assert NodeType.file in types
+        assert NodeType.package_ref in types
+        for n in result.nodes:
+            if n.type in {NodeType.nix_option, NodeType.file, NodeType.package_ref}:
+                assert n.path == "svc.nix", f"{n.id} должен иметь владельца svc.nix"
 
 
 class TestEmptyString:

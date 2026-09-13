@@ -47,6 +47,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                 id=opt_id,
                 type=NodeType.nix_option,
                 name=opt.attrpath,
+                path=path_str,
                 lang="nix",
                 metadata={
                     "opt_type": _meta_str(opt.type),
@@ -133,6 +134,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                     id=file_id,
                     type=NodeType.file,
                     name=hf.target,
+                    path=path_str,
                     lang="nix",
                 )
             )
@@ -153,6 +155,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                     id=pkg_id,
                     type=NodeType.package_ref,
                     name=pkg.attribute,
+                    path=path_str,
                     lang="nix",
                 )
             )

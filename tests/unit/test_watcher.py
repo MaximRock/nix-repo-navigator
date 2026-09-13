@@ -82,3 +82,30 @@ def test_watcher_should_handle_only_nix(tmp_path: Path) -> None:
     assert handler._should_handle(str(tmp_path / "test.db")) is False
     assert handler._should_handle(str(tmp_path / ".repo-navigator" / "repo-navigator.db")) is False
     loop.close()
+
+
+def test_watchdog_handler_dispatch() -> None:
+    from types import SimpleNamespace
+
+    from repo_navigator.watcher.filesystem import _WatchdogHandler
+
+    router = EventRouter()
+    loop = asyncio.new_event_loop()
+    handler = _WatchdogHandler(Path("/tmp"), router, loop, Config(root=Path("/tmp")))
+
+    seen: list[str] = []
+    handler.on_modified = lambda e: seen.append(e.src_path)  # type: ignore[method-assign]
+
+    handler.dispatch(
+        SimpleNamespace(event_type="modified", is_directory=False, src_path="/tmp/a.nix")
+    )
+    handler.dispatch(
+        SimpleNamespace(event_type="created", is_directory=False, src_path="/tmp/a.nix")
+    )
+    handler.dispatch(
+        SimpleNamespace(event_type="deleted", is_directory=False, src_path="/tmp/a.nix")
+    )
+
+    # "modified" routed; unhandled types are a no-op
+    assert seen == ["/tmp/a.nix"]
+    loop.close()

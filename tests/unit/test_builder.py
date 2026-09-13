@@ -154,6 +154,43 @@ class TestBuildFile:
         assert graph.has_node("nix:a.nix")
         assert graph.has_node("nix:b.nix")
 
+    def test_incoming_edge_survives_rebuild_with_outgoing_edges(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+        # Regression: rebuilding a file that HAS outgoing edges must not
+        # cascade-drop incoming import edges from other files.
+        pr_b = ParseResult(
+            nodes=[_mod("b.nix"), _opt("b.opt")],
+            edges=[_declares("b.nix", "b.opt")],
+        )
+        builder.build_file("b.nix", pr_b)
+        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]))
+        assert db.count_edges() == 2
+
+        # Rebuild b: b keeps its outgoing edge, module node id is unchanged.
+        pr_b2 = ParseResult(
+            nodes=[_mod("b.nix"), _opt("b.opt")],
+            edges=[_declares("b.nix", "b.opt")],
+        )
+        builder.build_file("b.nix", pr_b2)
+
+        assert any(e.source == "nix:a.nix" and e.target == "nix:b.nix" for e in db.get_all_edges())
+        assert graph.has_node("nix:b.nix")
+        assert graph.number_of_edges() == 2
+
+    def test_lost_option_node_is_dropped_with_incoming_edges(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+        # b declares option x initially; a also sets it. After b drops the
+        # declaration, the option node must be purged together with the
+        # now-dangling incoming edge (a->x).
+        builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix"), _opt("service.x")], edges=[_declares("b.nix", "service.x")]))
+        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix"), _sets("a.nix", "service.x")]))
+
+        assert db.get_node("nix_option:service.x") is not None
+
+        builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix")], edges=[]))
+
+        assert db.get_node("nix_option:service.x") is None
+        assert not any(e.target == "nix_option:service.x" for e in db.get_all_edges())
+        assert graph.has_node("nix:a.nix")
+
     def test_generation_increments(self, builder: GraphBuilder, db: Database) -> None:
         assert db.get_generation_id() == 0
         builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[]))

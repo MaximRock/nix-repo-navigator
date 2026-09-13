@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from pathlib import Path
 
 from repo_navigator.config import Config
@@ -17,7 +16,7 @@ log = logging.getLogger(__name__)
 SKIP_DIRS = {".git", ".hg", ".svn", ".repo-navigator", "__pycache__", ".mypy_cache", ".pytest_cache", ".direnv", "result", "target", "node_modules"}
 
 
-class _WatchdogHandler:  # type: ignore[no-redef]
+class _WatchdogHandler:
     """Internal handler that forwards to EventRouter (thread-safe)."""
 
     def __init__(self, root: Path, event_router: EventRouter, loop: asyncio.AbstractEventLoop, config: Config) -> None:
@@ -61,7 +60,18 @@ class _WatchdogHandler:  # type: ignore[no-redef]
         except Exception:
             log.exception("watcher: on_file_event failed for %s", src_path)
 
-    # Watchdog callbacks (called from observer thread)
+    def dispatch(self, event) -> None:  # type: ignore[no-untyped-def]
+        """Watchdog-compatible dispatch: route by ``event.event_type``.
+
+        Watchdog expects its handlers to subclass ``FileSystemEventHandler``
+        (which provides ``dispatch``); we keep watchdog an optional dependency,
+        so implement the same routing here.
+        """
+        handler = getattr(self, f"on_{event.event_type}", None)
+        if handler is not None:
+            handler(event)
+
+    # Watchdog callbacks (called via dispatch from the observer thread)
     def on_modified(self, event) -> None:  # type: ignore[no-untyped-def]
         if not event.is_directory:
             self._handle(event.src_path)

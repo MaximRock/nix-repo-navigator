@@ -22,6 +22,31 @@ from repo_navigator.models.queries import ParseResult
 log = logging.getLogger(__name__)
 
 
+# Edge types where the source file *owns* the target node: rebuilding the
+# file may therefore drop the target (purge) once nothing else references it.
+_OWNER_EDGE_TYPES = frozenset(
+    {
+        EdgeType.declares,
+        EdgeType.configures,
+        EdgeType.specialises,
+        EdgeType.passes_args,
+        EdgeType.generates,
+        EdgeType.uses_package,
+    }
+)
+
+# Edge types that only *reference* a node shared across files; a surviving
+# reference must keep the node alive when some other file drops it.
+_SHARED_REF_EDGE_TYPES = frozenset(
+    {
+        EdgeType.uses_package,
+        EdgeType.references,
+        EdgeType.sources,
+        EdgeType.binds_key,
+    }
+)
+
+
 class GraphBuilder:
     """Builds the graph from parser outputs."""
 
@@ -36,17 +61,33 @@ class GraphBuilder:
         path_str = str(path)
 
         # Snapshot old state before mutation (for delta).
-        old_nodes = [n for n in self.db.get_all_nodes() if n.path == path_str]
         old_edges = self.db.get_edges_for_file(path_str)
-        old_node_ids = {n.id for n in old_nodes}
         old_edge_ids = {e.id for e in old_edges}
+
+        # Nodes owned by this file: the module self node plus everything it
+        # declares/configures/uses via ownership edges.  Relying on edges
+        # (not just ``path``) keeps this robust for synthetic placeholder
+        # nodes that may lack an owner path.
+        old_node_ids = {f"nix:{path_str}"}
+        for edge in old_edges:
+            if edge.type in _OWNER_EDGE_TYPES:
+                old_node_ids.add(edge.target)
 
         # Prepare new state (deterministic ids, placeholders).
         new_nodes, new_edges = self._prepare(parse_result, path_str)
+        new_node_ids = {n.id for n in new_nodes}
+        new_edge_ids = {e.id for e in new_edges}
+
+        # Nodes the new build no longer produces; their incoming edges from
+        # other files (e.g. A imports B) become dangling and must die too.
+        dropped_node_ids = old_node_ids - new_node_ids
 
         # ---- SQLite: replace file-owned sub-graph ------------------------
-        # Delete old outgoing edges explicitly (avoid orphaned edges when
-        # we later delete nodes with FK OFF).
+        # Delete old outgoing edges explicitly, then remove only dropped
+        # nodes.  Nodes that survive in the new build (e.g. the module self
+        # node ``nix:<path>``) are *not* deleted, so incoming edges from
+        # other files survive the rebuild (FK cascade would otherwise strip
+        # them, silently breaking the import graph on incremental updates).
         with self.db._lock, self.db.transaction():
             if old_edge_ids:
                 placeholders = ",".join("?" for _ in old_edge_ids)
@@ -54,33 +95,56 @@ class GraphBuilder:
                     f"DELETE FROM edges WHERE id IN ({placeholders})",
                     tuple(old_edge_ids),
                 )
-            # Delete file-owned nodes with FK OFF to preserve incoming
-            # edges from other files (e.g. A imports B).
-            self.db._conn.execute("PRAGMA foreign_keys=OFF")
-            try:
-                self.db._conn.execute("DELETE FROM nodes WHERE path=?", (path_str,))
-            finally:
-                self.db._conn.execute("PRAGMA foreign_keys=ON")
+            deleted_node_ids: list[str] = []
+            for node_id in sorted(dropped_node_ids):
+                incoming = self.db._conn.execute(
+                    "SELECT type FROM edges WHERE target=?", (node_id,)
+                ).fetchall()
+                # Shared references (other files use the package/file) keep
+                # the node alive; dropping one consumer must not strip the
+                # remaining consumers' edges.
+                if any(
+                    r[0] in _SHARED_REF_EDGE_TYPES for r in incoming
+                ):
+                    continue
+                self.db._conn.execute(
+                    "DELETE FROM nodes WHERE id=?", (node_id,)
+                )
+                deleted_node_ids.append(node_id)
 
         # Insert new nodes (including placeholders for external targets).
         for node in new_nodes:
             self.db.upsert_node(node)
+
+        # Targets of the new build may have been purged by the drop above
+        # (e.g. an option that was declared here and is now only ``set``);
+        # FK requires the target to exist before inserting the edge, so a
+        # fresh synthetic placeholder is re-created for them.
+        late_placeholders: list[Node] = []
+        for edge in new_edges:
+            if edge.target in new_node_ids or edge.target in {
+                p.id for p in late_placeholders
+            }:
+                continue
+            if self.db.get_node(edge.target) is not None:
+                continue
+            ph = _placeholder_for_target(edge.target)
+            if ph is not None:
+                self.db.upsert_node(ph)
+                late_placeholders.append(ph)
 
         # Ensure every edge target exists (placeholder already in new_nodes).
         for edge in new_edges:
             self.db.upsert_edge(edge)
 
         # ---- NxGraph delta ----------------------------------------------
-        new_node_ids = {n.id for n in new_nodes}
-        new_edge_ids = {e.id for e in new_edges}
-
-        removed_node_ids = list(old_node_ids - new_node_ids)
+        removed_node_ids = list(deleted_node_ids)
         # For edges we already deleted old outgoing, but we need to tell
         # NxGraph which edges to drop and which to add.
         removed_edge_ids = list(old_edge_ids - new_edge_ids)
 
         self.nx_graph.apply_delta(
-            added_nodes=new_nodes,
+            added_nodes=new_nodes + late_placeholders,
             removed_node_ids=removed_node_ids,
             added_edges=new_edges,
             removed_edge_ids=removed_edge_ids,
