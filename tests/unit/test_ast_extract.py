@@ -67,6 +67,50 @@ class TestBareImports:
         assert len(r.imports) == 0
 
 
+class TestModulesList:
+    def test_modules_path_literals_become_imports(self) -> None:
+        r = extract_source(
+            "{ mkHost = nixpkgs.lib.nixosSystem { modules = [ ../modules/nixos ../modules/nixos/home-manager.nix ]; }; }"
+        )
+        assert [i.path for i in r.imports] == [
+            "../modules/nixos",
+            "../modules/nixos/home-manager.nix",
+        ]
+        assert r.modules == []
+
+    def test_modules_selects_become_module_refs(self) -> None:
+        r = extract_source(
+            "{ mkHost = nixpkgs.lib.nixosSystem { modules = [ sops-nix.nixosModules.sops home-manager.nixosModules.home-manager ]; }; }"
+        )
+        assert [(m.name, m.select) for m in r.modules] == [
+            ("sops-nix", "nixosModules.sops"),
+            ("home-manager", "nixosModules.home-manager"),
+        ]
+        assert r.imports == []
+
+    def test_modules_bare_select_name_only(self) -> None:
+        r = extract_source("{ x = f { modules = [ mymod ]; }; }")
+        assert [(m.name, m.select) for m in r.modules] == [("mymod", None)]
+
+    def test_modules_dynamic_entry_unresolved(self) -> None:
+        r = extract_source("{ x = f { modules = [ (hostPath + /default.nix) ]; }; }")
+        assert len(r.imports) == 0
+        assert len(r.modules) == 0
+        assert len(r.unresolved) == 1
+        assert "dynamic module" in r.unresolved[0].reason
+
+    def test_modules_nested_import_call_still_found(self) -> None:
+        # A bare `import` inside modules is caught by the generic walker.
+        r = extract_source("{ x = f { modules = [ (import ./extra.nix) ]; }; }")
+        assert [i.path for i in r.imports] == ["./extra.nix"]
+
+    def test_modules_not_a_list_ignored(self) -> None:
+        r = extract_source("{ modules = someVar; }")
+        assert r.imports == []
+        assert r.modules == []
+        assert r.unresolved == []
+
+
 class TestOptions:
     def test_simple_option(self) -> None:
         r = extract_source("{ options.x = mkOption { type = types.bool; }; }")

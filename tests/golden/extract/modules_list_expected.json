@@ -1,0 +1,84 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:modules_list.nix",
+      "target": "nix:lib/default.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:modules_list.nix",
+      "target": "nix:../modules/nixos/default.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:modules_list.nix",
+      "target": "nix:../modules/nixos/home-manager.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "line": 0,
+        "select": "nixosModules.sops"
+      },
+      "source": "nix:modules_list.nix",
+      "target": "flake_input:sops-nix",
+      "type": "references",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "line": 0,
+        "select": "nixosModules.home-manager"
+      },
+      "source": "nix:modules_list.nix",
+      "target": "flake_input:home-manager",
+      "type": "references",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:modules_list.nix",
+      "target": "nix_function:modules_list.nix:mkNixosConfiguration",
+      "type": "declares",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:modules_list.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "modules_list.nix",
+      "path": "modules_list.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_function:modules_list.nix:mkNixosConfiguration",
+      "lang": "nix",
+      "metadata": {
+        "args": [
+          "hostName",
+          "hostPath"
+        ]
+      },
+      "name": "mkNixosConfiguration",
+      "path": "modules_list.nix",
+      "type": "nix_function"
+    }
+  ]
+}

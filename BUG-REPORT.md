@@ -16,6 +16,7 @@
 | Python plugin | never activates in this repo | Added `--plugins`/`--parse-unreferenced` flags to `cli.py::start`; env vars still apply when flags omitted | 4 |
 | Python smells | `heading` type, `package_ref` imports, truncated call chains | Added `python_module` node type; import targets use `python_module`; `_CallCollector` preserves full dotted chains | 4 |
 | Docs gaps | `eval_expression` / `introspect_option` behavior undocumented | Documented in `docs/query-verbs.md` (syntax, scope, examples) | 5 |
+| Follow-up | `modules = [ ... ]` lists not treated as imports | `_collect_modules_list` in `ast_extract.py` (paths → `imports`, selects → `ModuleRef` → `references` to `flake_input`); placeholder branch in `builder.py` | 6 |
 
 After `repo_navigator_refresh` (generation 2):
 
@@ -120,3 +121,59 @@ nix-repo-navigator start --root /home/max/.dotfiles \
 # CLI: nix-repo-navigator report
 # expect: files_served (distinct source paths served this session)
 ```
+
+## Runtime verification (2026-09-14, flake rev `0a166b27`, generation 3)
+
+Live-checked after `nixos-rebuild switch` + MCP restart
+(new process, store path `sc3i4h579…`, uptime reset):
+
+- **BUG 1 — CONFIRMED FIXED.** `observe(nix:flake.nix)` → `imports` →
+  `nix:lib/default.nix`; `hop(imports, depth=2)` returns the full chain
+  flake → lib → {var-default, overlays, lib/qtile/theme, nvf-config}.
+  478 edges total (+44 vs broken build). `blast_radius` traverses the new edges:
+  `flake.nix` now shows up as a dependent of `mkNixosConfiguration`.
+- **BUG 2 — CONFIRMED FIXED.** `blast_radius` returns the `declares` edge
+  exactly once.
+- **BUG 3 — CONFIRMED FIXED.** `report` returns `files_served`;
+  `queries_served`/`queries_by_tool` now consistent with `status`.
+- Earlier `hop → []` with existing edges was stale in-memory-graph state of the
+  old server process, not a separate bug — resolved by restart.
+- `find_symbol("mkOutOfStoreSymlink")` → `[]` is CORRECT (not a bug):
+  it is a home-manager library function (`config.lib.file.*`), never defined
+  in this repo.
+- Python nodes absent at runtime — expected: plugin still not enabled in this
+  setup (needs `--plugins python` + refresh).
+
+## Follow-up (new, found during verification): ✅ FIXED (2026-09-14, stages 1–3)
+
+**`modules = [ ... ]` lists are now treated as imports.**
+`lib/default.nix` wires the system via
+`nixpkgs.lib.nixosSystem { modules = [ ../modules/nixos
+../modules/nixos/home-manager.nix … ]; }` — previously `_collect_bare_imports`
+only collected `import <path>` *call* expressions, so bare path literals
+inside a `modules` list were skipped.
+
+**Fix:**
+- `ast_extract.py`: new `ModuleRef(name, select, line)` dataclass + `ExtractedNix.modules`
+  field; `_collect_bare_imports` handles the `modules` attribute (List):
+  path literal → `ImportDecl` (same as `imports`), bare select
+  (`sops-nix.nixosModules.sops`) → `ModuleRef` (first component = flake-input
+  name), dynamic entries (`(hostPath + /default.nix)`, interpolation) →
+  `UnresolvedRef`. Generic recursion still runs so nested `import` calls are found.
+- `module_parser.py`: `ModuleRef` → `references` edge to `flake_input:<name>`
+  (metadata `select`, `line`). `references` is intentionally outside
+  `_DEPENDENCY_TYPES`, so flake inputs stay out of the dependencies closure.
+- `builder.py`: `flake_input:` branch in `_placeholder_for_target` →
+  `NodeType.flake_input` (synthetic fallback; the real node from `flake.lock`
+  takes precedence).
+- Tests: `TestModulesList` (6 unit), golden `extract/modules_list.nix`
+  (dotfiles pattern), e2e `test_e2e_modules_list_edges_and_queries`
+  (imports + references + closure assertions).
+
+**Old text (for reference):** `_collect_bare_imports` only collects `import
+<path>` *call* expressions — bare path literals inside a `modules` list are
+skipped, and `_process_imports` only handles the `imports` attribute. So
+`../modules/nixos` (→ `modules/nixos/default.nix`; directory resolution itself
+works via `_normalise_import`) has no edge. Suggested fix: treat a `modules`
+attribute list like `imports` for path literals (selects like
+`sops-nix.nixosModules.sops` could additionally map to `flake_input` nodes).

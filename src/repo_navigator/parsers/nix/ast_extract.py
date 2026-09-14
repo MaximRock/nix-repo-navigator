@@ -36,6 +36,20 @@ class ImportDecl:
 
 
 @dataclass
+class ModuleRef:
+    """A ``nixosSystem { modules = [ … ] }`` entry that is not a path.
+
+    Bare selects like ``sops-nix.nixosModules.sops`` reference a module
+    exported by a flake input: *name* is the input name (first path
+    component), *select* the remainder (``None`` for a bare ``name``).
+    """
+
+    name: str
+    select: str | None = None
+    line: int = 0
+
+
+@dataclass
 class OptionDecl:
     attrpath: str
     type: Any = None
@@ -96,6 +110,7 @@ class UnresolvedRef:
 @dataclass
 class ExtractedNix:
     imports: list[ImportDecl] = field(default_factory=list)
+    modules: list[ModuleRef] = field(default_factory=list)
     options: list[OptionDecl] = field(default_factory=list)
     configs: list[ConfigSet] = field(default_factory=list)
     specialisations: list[Specialisation] = field(default_factory=list)
@@ -359,6 +374,17 @@ def _collect_bare_imports(expr: Expr, result: ExtractedNix) -> None:
             if isinstance(attr.name, str) and attr.name == "imports":
                 # Handled by _process_imports; dynamic imports stay unresolved.
                 continue
+            if (
+                isinstance(attr.name, str)
+                and attr.name == "modules"
+                and isinstance(attr.value, List)
+            ):
+                # `nixosSystem { modules = [ … ] }`: treat path literals like
+                # imports; map bare selects to ModuleRef. Still recurse
+                # generically so nested `import` calls are found.
+                _collect_modules_list(attr.value, result)
+                _collect_bare_imports(attr.value, result)
+                continue
             if attr.value is not None:
                 _collect_bare_imports(attr.value, result)
     elif isinstance(expr, List):
@@ -397,6 +423,52 @@ def _collect_bare_imports(expr: Expr, result: ExtractedNix) -> None:
 
 
 # ----------------------------------------------------------- processing
+
+
+def _collect_modules_list(value: List, result: ExtractedNix) -> None:
+    """Collect ``modules = [ … ]`` entries (e.g. ``nixosSystem { modules }``).
+
+    Path literals become :class:`ImportDecl` (same as in ``imports``); bare
+    selects like ``sops-nix.nixosModules.sops`` become :class:`ModuleRef`
+    (first component names the flake input); dynamic entries become
+    :class:`UnresolvedRef`.  Nested ``import`` calls are left to the generic
+    walker in :func:`_collect_bare_imports`.
+    """
+    for item in value.items:
+        if isinstance(item, Literal) and item.value_type == "path":
+            result.imports.append(
+                ImportDecl(path=str(item.value), line=getattr(item, "line", 0))
+            )
+        elif isinstance(item, Select) and item.base is None and item.path:
+            if _is_interpolation(item):
+                result.unresolved.append(
+                    UnresolvedRef(
+                        location=str(_is_select_str(item) or item),
+                        reason="unresolved interpolation in module",
+                    )
+                )
+            else:
+                result.modules.append(
+                    ModuleRef(
+                        name=item.path[0],
+                        select=".".join(item.path[1:]) or None,
+                        line=getattr(item, "line", 0),
+                    )
+                )
+        elif isinstance(item, (Interpolation, BinaryOp, UnaryOp)):
+            result.unresolved.append(
+                UnresolvedRef(
+                    location=str(item),
+                    reason="dynamic module entry",
+                )
+            )
+        elif _is_interpolation(item):
+            result.unresolved.append(
+                UnresolvedRef(
+                    location=str(_is_select_str(item) or item),
+                    reason="unresolved interpolation in module",
+                )
+            )
 
 
 def _process_imports(

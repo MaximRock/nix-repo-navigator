@@ -259,6 +259,102 @@ def _node_types(db: Database) -> set[NodeType]:
     return {n.type for n in db.get_all_nodes()}
 
 
+def test_e2e_modules_list_edges_and_queries(tmp_path: Path) -> None:
+    # Bug-report follow-up scenario: `lib/default.nix` wires the system via
+    # `nixosSystem { modules = [ … ] }`. Path literals must become `imports`
+    # edges, bare selects (`sops-nix.nixosModules.sops`) must become
+    # `references` edges to `flake_input:*` nodes, and the dynamic
+    # `(hostPath + /default.nix)` entry is skipped (unresolved).
+    _write(
+        tmp_path / "flake.nix",
+        """
+        { inputs }:
+        {
+          nixosConfigurations.host = (import ./lib).mkHost {};
+        }
+        """,
+    )
+    _write(
+        tmp_path / "lib" / "default.nix",
+        """
+        { inputs }:
+        let
+          inherit (inputs) nixpkgs home-manager sops-nix;
+        in
+        {
+          mkHost = { ... }:
+            nixpkgs.lib.nixosSystem {
+              inherit system;
+              modules = [
+                sops-nix.nixosModules.sops
+                (hostPath + /default.nix)
+                ../modules/nixos
+                home-manager.nixosModules.home-manager
+                ../modules/nixos/home-manager.nix
+              ];
+            };
+        }
+        """,
+    )
+    _write(
+        tmp_path / "modules" / "nixos" / "default.nix",
+        "{ config.services.openssh.enable = true; }",
+    )
+    _write(
+        tmp_path / "modules" / "nixos" / "home-manager.nix",
+        "{ config.services.foo.enable = true; }",
+    )
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    edge_set = {(e.source, e.target, e.type) for e in db.get_all_edges()}
+    # Path literals from `modules` resolve like imports (dir -> default.nix).
+    assert (
+        "nix:lib/default.nix",
+        "nix:modules/nixos/default.nix",
+        EdgeType.imports,
+    ) in edge_set
+    assert (
+        "nix:lib/default.nix",
+        "nix:modules/nixos/home-manager.nix",
+        EdgeType.imports,
+    ) in edge_set
+    # Bare selects reference flake inputs (synthetic placeholders here —
+    # no flake.lock in this fixture).
+    assert (
+        "nix:lib/default.nix",
+        "flake_input:sops-nix",
+        EdgeType.references,
+    ) in edge_set
+    assert (
+        "nix:lib/default.nix",
+        "flake_input:home-manager",
+        EdgeType.references,
+    ) in edge_set
+
+    node_by_id = {n.id: n for n in db.get_all_nodes()}
+    assert node_by_id["flake_input:sops-nix"].type == NodeType.flake_input
+
+    # Dependencies closure from the flake reaches the wired modules, but
+    # `references` is not a dependency edge so flake inputs stay out.
+    q = QueryEngine(db, g, config=cfg)
+    dep_ids = {d.node.id for d in q.dependencies("nix:flake.nix").depends_on}
+    assert "nix:modules/nixos/default.nix" in dep_ids
+    assert "nix:modules/nixos/home-manager.nix" in dep_ids
+    assert "flake_input:sops-nix" not in dep_ids
+
+    # Dependents of a wired module walk back through lib to the flake.
+    dent_ids = {
+        d.node.id for d in q.dependents("nix:modules/nixos/default.nix").dependents
+    }
+    assert "nix:lib/default.nix" in dent_ids
+    assert "nix:flake.nix" in dent_ids
+
+
 def test_e2e_python_plugin_activation_qtile_scenario(tmp_path: Path) -> None:
     # Bug-report scenario: python files live under modules/home/wm/qtile/config/
     # (directory named `config`, not `.config`), so two gates block them:

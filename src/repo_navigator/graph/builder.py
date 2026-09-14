@@ -364,6 +364,16 @@ def _placeholder_for_target(target: str) -> Node | None:
             lang="nix",
             metadata={"synthetic": True},
         )
+    if target.startswith("flake_input:"):
+        name = target.removeprefix("flake_input:")
+        return Node(
+            id=target,
+            type=NodeType.flake_input,
+            name=name,
+            path=None,
+            lang="nix",
+            metadata={"synthetic": True},
+        )
     if target.startswith("package:"):
         attr = target.removeprefix("package:")
         return Node(

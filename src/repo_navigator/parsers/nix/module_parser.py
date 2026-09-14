@@ -39,6 +39,21 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
             )
         )
 
+    # flake-input module references from `modules = [ … ]` lists
+    # (e.g. `sops-nix.nixosModules.sops` in `nixosSystem { modules }`).
+    for mod in extracted.modules:
+        mod_meta: dict = {"line": mod.line}
+        if mod.select:
+            mod_meta["select"] = mod.select
+        edges.append(
+            RawEdge(
+                source=module_id,
+                target=f"flake_input:{mod.name}",
+                type=EdgeType.references,
+                metadata=mod_meta,
+            )
+        )
+
     # options
     for opt in extracted.options:
         opt_id = f"nix_option:{opt.attrpath}"
