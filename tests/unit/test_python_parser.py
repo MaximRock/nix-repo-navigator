@@ -53,9 +53,11 @@ def test_python_parser_basic() -> None:
     parser = PythonParser()
     result = parser.parse(Path("scripts/main.py"), SAMPLE)
 
-    # Root node
+    # Root node (a module, not a heading/package)
     ids = {n.id for n in result.nodes}
     assert "python:scripts/main.py" in ids
+    root = next(n for n in result.nodes if n.id == "python:scripts/main.py")
+    assert root.type == NodeType.python_module
 
     # Functions (incl. async def)
     py_funcs = {n.name for n in result.nodes if n.type == NodeType.py_function}
@@ -65,7 +67,7 @@ def test_python_parser_basic() -> None:
     py_classes = {n.name for n in result.nodes if n.type == NodeType.py_class}
     assert {"Animal", "Dog"} <= py_classes
 
-    # Imports resolved to package_ref nodes + python_imports edges
+    # Imports resolved to python_module nodes + python_imports edges
     import_edges = [e for e in result.edges if e.type == EdgeType.python_imports]
     assert len(import_edges) == 3  # os, pathlib, collections
     import_targets = {e.target for e in import_edges}
@@ -74,6 +76,12 @@ def test_python_parser_basic() -> None:
         "py_module:pathlib",
         "py_module:collections",
     } <= import_targets
+    # Import targets are python modules, not nix package_refs (would pollute
+    # the package index / package queries).
+    for target in import_targets:
+        node = next(n for n in result.nodes if n.id == target)
+        assert node.type == NodeType.python_module
+        assert node.type != NodeType.package_ref
 
 
 def test_python_parser_metadata() -> None:
@@ -126,12 +134,46 @@ def test_python_parser_calls_and_declares() -> None:
     assert "py_class:scripts/main.py:Dog" in call_targets
 
 
+def test_python_call_collector_preserves_chain() -> None:
+    import ast
+
+    from repo_navigator.parsers.plugins.python import _CallCollector
+
+    # Attribute chains keep the dotted path instead of only the last `.attr`.
+    tree = ast.parse("def f():\n    qtile.lazy.spawn('x')\n    local()\n")
+    collector = _CallCollector()
+    collector.visit(tree)
+    names = [name for name, _ in collector.calls]
+    assert "qtile.lazy.spawn" in names
+    assert "local" in names
+    assert "spawn" not in names  # the bare attribute name would be ambiguous
+
+
+def test_python_parser_call_metadata_chain() -> None:
+    parser = PythonParser()
+    result = parser.parse(
+        Path("scripts/main.py"),
+        "import os\n"
+        "def helper():\n"
+        "    return 1\n"
+        "def main():\n"
+        "    obj = helper()\n"
+        "    os.path.join('a', 'b')\n"
+        "    return obj\n",
+    )
+    calls = [e for e in result.edges if e.type == EdgeType.calls]
+    # Same-file call resolved to the full dotted name; external chain not
+    # resolved (no same-file symbol) but never mis-recorded as `join`.
+    assert any(e.metadata.get("call") == "helper" for e in calls)
+    assert all(e.metadata.get("call") != "join" for e in calls)
+
+
 def test_python_parser_syntax_error() -> None:
     parser = PythonParser()
     result = parser.parse(Path("broken.py"), "def foo(:\n")
-    # Should still return module heading node, no crash
+    # Should still return module node, no crash
     assert len(result.nodes) == 1
-    assert result.nodes[0].type == NodeType.heading
+    assert result.nodes[0].type == NodeType.python_module
 
 
 def test_python_parser_registry() -> None:

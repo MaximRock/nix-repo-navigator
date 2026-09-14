@@ -103,8 +103,9 @@ def test_my_parse() -> None:
 ### Step 5 — Enable and verify
 
 ```bash
-REPO_NAVIGATOR_PLUGINS='["my","python","kdl"]' nix-repo-navigator index .
-# or Config(plugins=["my"])
+nix-repo-navigator start --plugins my,python,kdl --parse-unreferenced
+# or env vars: REPO_NAVIGATOR_PLUGINS='["my","python","kdl"]'
+# or Config(plugins=["my", "python", "kdl"], parse_unreferenced=True)
 ```
 
 Then run the checks (see AGENTS.md):

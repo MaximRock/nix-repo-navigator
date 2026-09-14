@@ -193,8 +193,18 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
 
 
 def _normalise_import(file_path: str, import_path: str) -> str:
-    """Normalise an import path relative to the importing file."""
-    if import_path.startswith("/") or import_path.startswith("./") or import_path.startswith("../"):
+    """Normalise an import path relative to the importing file.
+
+    Nix resolves an import of a directory to ``default.nix`` inside it, so
+    extension-less paths (e.g. ``import ./lib``) get ``/default.nix``
+    appended — ``flake.nix``'s ``import ./lib`` therefore edges to
+    ``lib/default.nix`` instead of a phantom ``lib`` file node.
+    """
+    if (
+        import_path.startswith("/")
+        or import_path.startswith("./")
+        or import_path.startswith("../")
+    ):
         import posixpath
 
         parent = str(Path(file_path).parent)
@@ -203,6 +213,8 @@ def _normalise_import(file_path: str, import_path: str) -> str:
         # posixpath keeps leading "./" for "." parent case; strip it.
         if norm.startswith("./"):
             norm = norm[2:]
+        if not Path(norm).suffix:
+            norm = posixpath.join(norm, "default.nix")
         return norm
     return import_path
 

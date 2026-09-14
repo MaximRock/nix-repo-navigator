@@ -90,19 +90,39 @@ class _ImportCollector(ast.NodeVisitor):
 
 
 class _CallCollector(ast.NodeVisitor):
-    """Walk the AST to collect simple function-call names (best-effort)."""
+    """Walk the AST to collect call names as full dotted chains (best-effort).
+
+    ``qtile.lazy.spawn(...)`` is recorded as ``qtile.lazy.spawn`` (not just
+    ``spawn``), so same-file resolution can match the whole chain instead of
+    losing the attribute context.
+    """
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, int]] = []  # (name, lineno)
+        self.calls: list[tuple[str, int]] = []  # (chain, lineno)
+
+    @staticmethod
+    def _func_chain(node: ast.expr) -> str | None:
+        """Return the dotted chain of a function expression, or ``None``."""
+        parts: list[str] = []
+        cur: ast.expr = node
+        while isinstance(cur, ast.Attribute):
+            parts.append(cur.attr)
+            cur = cur.value
+        if isinstance(cur, ast.Name):
+            parts.append(cur.id)
+        elif isinstance(cur, ast.Call):
+            inner = _CallCollector._func_chain(cur.func)
+            if inner is None:
+                return None
+            parts.append(inner)
+        else:
+            return None
+        return ".".join(reversed(parts))
 
     def visit_Call(self, node: ast.Call) -> None:
-        name: str | None = None
-        if isinstance(node.func, ast.Name):
-            name = node.func.id
-        elif isinstance(node.func, ast.Attribute):
-            name = node.func.attr
-        if name:
-            self.calls.append((name, getattr(node, "lineno", 0)))
+        chain = self._func_chain(node.func)
+        if chain is not None:
+            self.calls.append((chain, getattr(node, "lineno", 0)))
         self.generic_visit(node)
 
 
@@ -122,7 +142,7 @@ class PythonParser(BaseParser):
         nodes: list[RawNode] = [
             RawNode(
                 id=module_id,
-                type=NodeType.heading,
+                type=NodeType.python_module,
                 name=path_str,
                 path=path_str,
                 lang="python",
@@ -214,7 +234,7 @@ class PythonParser(BaseParser):
                 nodes.append(
                     RawNode(
                         id=target_id,
-                        type=NodeType.package_ref,
+                        type=NodeType.python_module,
                         name=mod_name,
                         path=path_str,
                         lang="python",
@@ -228,7 +248,7 @@ class PythonParser(BaseParser):
                 )
             )
 
-        # --- calls → calls edges (limited to functions defined in the same file) ---
+        # --- calls → calls edges (full-chain match; limited to same-file symbols) ---
         call_collector = _CallCollector()
         call_collector.visit(tree)
         known_symbols = {
@@ -236,14 +256,14 @@ class PythonParser(BaseParser):
             for n in nodes
             if n.type in (NodeType.py_function, NodeType.py_class)
         }
-        for call_name, lineno in call_collector.calls:
-            if call_name in known_symbols:
+        for chain, lineno in call_collector.calls:
+            if chain in known_symbols:
                 edges.append(
                     RawEdge(
                         source=module_id,
-                        target=known_symbols[call_name],
+                        target=known_symbols[chain],
                         type=EdgeType.calls,
-                        metadata={"line": lineno},
+                        metadata={"line": lineno, "call": chain},
                     )
                 )
 

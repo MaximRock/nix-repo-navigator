@@ -162,7 +162,7 @@ class BenefitReport(BaseModel):
 
     queries_served: int = 0
     queries_by_tool: dict[str, int] = Field(default_factory=dict)
-    files_tracked: int = 0  # unique source files never re-read by the agent
+    files_served: int = 0  # unique source files served through queries this session
     bytes_not_reread: int = 0
     tokens_estimated_saved: int = 0  # bytes_not_reread // 4
     uptime_seconds: float = 0.0

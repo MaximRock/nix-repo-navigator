@@ -1,0 +1,73 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:bare_imports.nix",
+      "target": "nix:overlays.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:bare_imports.nix",
+      "target": "nix:lib/default.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:bare_imports.nix",
+      "target": "nix:qtile/theme.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:bare_imports.nix",
+      "target": "nix:../extra.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {},
+      "source": "nix:bare_imports.nix",
+      "target": "nix_function:bare_imports.nix:mkNixosConfiguration",
+      "type": "declares",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:bare_imports.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "bare_imports.nix",
+      "path": "bare_imports.nix",
+      "type": "nix_module"
+    },
+    {
+      "id": "nix_function:bare_imports.nix:mkNixosConfiguration",
+      "lang": "nix",
+      "metadata": {
+        "args": [
+          "hostPath"
+        ]
+      },
+      "name": "mkNixosConfiguration",
+      "path": "bare_imports.nix",
+      "type": "nix_function"
+    }
+  ]
+}

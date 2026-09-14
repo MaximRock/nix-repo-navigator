@@ -13,7 +13,7 @@ Layer 1: Parsers & Indexer (nix, registry, hash, cascade, watch)
 - **Nix:** `lexer.py` (IMPL, PATH) → `parser.py` (recursive descent, 21 goldens, UnresolvedExpr) → `ast_extract.py` (imports/options/config/mkIf/mkMerge/specialisation/_module.args/home.file/packages) → `module_parser.py` (RawNode/RawEdge, ids `nix:*`, `nix_option:*`, `file:*`, `package:*`) → `nix_parser.py` (orchestrator, fallback >50% Unresolved).
 - **Registry:** `base.py` (`BaseParser` ABC, `tier`, `enabled`), `registry.py` (`LanguageConfig`, `register_language`, `get_parser_for_file`, `should_parse_file` Nix-first: tier1-3 only if `.config/` or `configures` edge + `plugins` enabled, `safe_parse` try/catch → `file` node).
 - **Indexer:** `hash_engine` (xxhash content, ast sorted JSON, merkle sha256), `diff_engine`, `cascade` (reverse BFS imports, dirty, merkle, invalidate_option_values), `update_engine` (content→ast check, builder, cascade), `scan` (`collect_files`, `index_repo`, flake+package mock), `event_router` (debounce 500ms, batch), `watcher` (watchdog/polling).
-- **Plugins:** `parsers/plugins/kdl.py` (tier 1, `kdl_bind/rule/spawn`, `@register_language`), enabled via `Config.plugins`.
+- **Plugins:** `parsers/plugins/python.py` (tier 1, `python_module`/`py_function`/`py_class` nodes, `python_imports`/`calls` edges, AST-based), `parsers/plugins/kdl.py` (tier 1, `kdl_bind/rule/spawn`, `@register_language`), enabled via `Config.plugins` or `--plugins` flag.
 
 ## Layer 2: Graph
 
@@ -24,12 +24,32 @@ Layer 1: Parsers & Indexer (nix, registry, hash, cascade, watch)
 
 ## Layer 3: MCP
 
-- `mcp_server.py` (`MCPServer` from `mcp==2.x`, not `FastMCP`), `create_mcp_server(config, engine)` registers 14 tools, each `engine.<verb>` → `model_dump(mode="json")`, `ToolError` for user errors (budget/depth/not found), `run_stdio_async()` transport, `python -m repo_navigator.mcp_server --root .`.
+- `mcp_server.py` (`MCPServer` from `mcp==2.x`, not `FastMCP`), `create_mcp_server(config, engine)` registers 17 tools, each `engine.<verb>` → `model_dump(mode="json")`, `ToolError` for user errors (budget/depth/not found), `run_stdio_async()` transport, `python -m repo_navigator.mcp_server --root .`.
 
 ## Config & CLI
 
-- `config.py` (`Config` pydantic-settings, env `REPO_NAVIGATOR_*`, `.env`, `root`, `plugins`, `db_path`, `budgets`, `timeouts`, `watcher_mode`, `resolved_db_path`).
-- `cli.py` (`typer`): `index`/`status`/`refresh`/`watch` (top), `dev lex/parse/extract/index/watch`, `query observe/hop/path/blast/find/summarize/option/eval/impact/status/flake-inputs/packages/package`, `start` (MCP stdio).
+- `config.py` (`Config` pydantic-settings, env `REPO_NAVIGATOR_*`, `.env`, `root`, `plugins`, `parse_unreferenced`, `db_path`, `budgets`, `timeouts`, `watcher_mode`, `resolved_db_path`).
+- `cli.py` (`typer`): `index`/`status`/`refresh`/`watch` (top), `dev lex/parse/extract/index/watch`, `query observe/hop/path/blast/find/summarize/option/eval/impact/status/flake-inputs/packages/package/report`, `start` (MCP stdio).
+
+### Plugin activation
+
+Tier 1-3 languages are opt-in. Configuration can be provided via CLI flags
+(the recommended way) or via `REPO_NAVIGATOR_*` env vars / `.env`:
+
+```bash
+nix-repo-navigator start --plugins python,kdl --parse-unreferenced
+REPO_NAVIGATOR_PLUGINS='["python","kdl"]' REPO_NAVIGATOR_PARSE_UNREFERENCED=true nix-repo-navigator start
+# Config(plugins=["python","kdl"], parse_unreferenced=True)
+```
+
+- `--plugins` is comma-separated and overrides `REPO_NAVIGATOR_PLUGINS`.
+- `--parse-unreferenced` parses every enabled-plugin file even when it is not
+  referenced by Nix (no `.config/` in the path, no `configures`/`generates`
+  edge). Needed for Python projects whose files live outside `.config/`
+  (e.g. `modules/home/wm/qtile/config/`).
+- Plugin `file` nodes are typed `python_module`/`py_function`/`py_class`;
+  imported modules become `python_module` nodes (id `py_module:<name>`), never
+  `package_ref`, so stdlib/third-party imports don't pollute the package index.
 
 ## Nix Eval & Cache
 

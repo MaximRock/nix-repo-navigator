@@ -59,6 +59,7 @@ class AttrSet(Expr):
 
 class Inherit(BaseModel):
     type: Lit["Inherit"] = "Inherit"
+    model_config = ConfigDict(populate_by_name=True)
     from_: Union["Expr", None] = Field(default=None, alias="from")
     names: list[str] = Field(default_factory=list)
 

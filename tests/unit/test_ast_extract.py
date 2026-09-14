@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from repo_navigator.parsers.nix.ast_extract import extract_source
+from repo_navigator.parsers.nix.module_parser import _normalise_import
 
 
 class TestImports:
@@ -23,6 +24,47 @@ class TestImports:
         assert len(r.imports) == 0
         assert len(r.unresolved) == 1
         assert "dynamic import" in r.unresolved[0].reason
+
+
+class TestBareImports:
+    def test_import_in_let_binding(self) -> None:
+        r = extract_source("{ inputs }: let lib = import ./lib; in { config = {}; }")
+        assert [i.path for i in r.imports] == ["./lib"]
+
+    def test_import_nested_call_arg(self) -> None:
+        r = extract_source(
+            "{ inputs }: let o = import ./overlays.nix { inherit inputs; }; in { a = 1; }"
+        )
+        assert [i.path for i in r.imports] == ["./overlays.nix"]
+
+    def test_import_in_inherit_from(self) -> None:
+        r = extract_source("{ inherit (import ./qtile.nix) themeName; }")
+        assert [i.path for i in r.imports] == ["./qtile.nix"]
+
+    def test_import_in_let_inherit_from(self) -> None:
+        r = extract_source(
+            "let inherit (import ./theme.nix { inherit (pkgs) lib; }) themeName; in { a = 1; }"
+        )
+        assert [i.path for i in r.imports] == ["./theme.nix"]
+
+    def test_import_in_function_body(self) -> None:
+        r = extract_source(
+            "{ f = x: let extra = import ../extra.nix; in x + extra.a; }"
+        )
+        assert [i.path for i in r.imports] == ["../extra.nix"]
+
+    def test_duplicate_imports_deduped_at_call_site(self) -> None:
+        # Two bindings importing the same path still emit just one ImportDecl
+        # per occurrence; module_parser dedupes edges by deterministic id.
+        r = extract_source(
+            "{ inputs }: let a = import ./x.nix; b = import ./x.nix; in { ok = a; }"
+        )
+        assert [i.path for i in r.imports] == ["./x.nix", "./x.nix"]
+
+    def test_dynamic_import_still_unresolved_outside_list(self) -> None:
+        # Non-path import (e.g. a variable expression) is not resolved.
+        r = extract_source("{ inputs }: let f = import inputs.something; in { a = 1; }")
+        assert len(r.imports) == 0
 
 
 class TestOptions:
@@ -115,3 +157,19 @@ class TestFunctions:
         assert len(r.functions) == 1
         assert r.functions[0].name == "myFunc"
         assert r.functions[0].args == ["x"]
+
+
+class TestNormaliseImport:
+    def test_directory_imports_resolve_to_default_nix(self) -> None:
+        assert _normalise_import("flake.nix", "./lib") == "lib/default.nix"
+        assert (
+            _normalise_import("lib/default.nix", "../modules/nixos")
+            == "modules/nixos/default.nix"
+        )
+
+    def test_extension_paths_unchanged(self) -> None:
+        assert _normalise_import("a.nix", "./a.nix") == "a.nix"
+        assert _normalise_import("lib/default.nix", "../home/x/y.nix") == "home/x/y.nix"
+
+    def test_non_relative_import_passthrough(self) -> None:
+        assert _normalise_import("a.nix", "<nixpkgs>") == "<nixpkgs>"

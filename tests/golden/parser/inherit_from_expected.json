@@ -2,7 +2,13 @@
   "attrs": [
     {
       "name": {
-        "from": null,
+        "from": {
+          "base": null,
+          "path": [
+            "pkgs"
+          ],
+          "type": "Select"
+        },
         "names": [
           "ripgrep"
         ],

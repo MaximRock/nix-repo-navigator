@@ -56,7 +56,7 @@ class QueryEngine:
         # Benefit statistics (repo_navigator_report).
         self._stats_queries = 0
         self._queries_by_tool: defaultdict[str, int] = defaultdict(int)
-        self._files_tracked: set[str] = set()
+        self._files_served: set[str] = set()
         self._bytes_not_reread = 0
         self._size_cache: dict[str, int] = {}
         # Eval cache (lazy, to avoid circular import at top)
@@ -109,9 +109,9 @@ class QueryEngine:
             if p:
                 paths.add(p)
         for p in paths:
-            if p in self._files_tracked:
+            if p in self._files_served:
                 continue
-            self._files_tracked.add(p)
+            self._files_served.add(p)
             self._bytes_not_reread += self._file_size(p)
 
     def _result_nodes(self, result: Any) -> list[Node]:
@@ -162,7 +162,7 @@ class QueryEngine:
         return BenefitReport(
             queries_served=self._stats_queries,
             queries_by_tool=dict(sorted(self._queries_by_tool.items())),
-            files_tracked=len(self._files_tracked),
+            files_served=len(self._files_served),
             bytes_not_reread=self._bytes_not_reread,
             tokens_estimated_saved=self._bytes_not_reread // 4,
             uptime_seconds=round(time.monotonic() - self._start_time, 2),
@@ -344,6 +344,12 @@ class QueryEngine:
             # Collect edges for the subgraph (reverse edges)
             edge_ids: set[str] = set()
             edges: list[Edge] = []
+
+            def _add(e: Edge) -> None:
+                if e.id not in edge_ids:
+                    edge_ids.add(e.id)
+                    edges.append(e)
+
             # For each node in blast, collect incoming edges that are part of blast
             # We can get all edges and filter where target in visited set
             visited_ids = {n.id for n in nodes} | {node_id}
@@ -351,21 +357,13 @@ class QueryEngine:
                 if e.source in visited_ids and e.target in visited_ids:
                     # Only include if edge is on a path that leads to node_id?
                     # For simplicity, include all edges among visited + source
-                    edges.append(e)
-                elif (
-                    e.target == node_id
-                    or e.source in visited_ids
-                    and e.target in visited_ids
-                ):
-                    pass
+                    _add(e)
             # Alternative: use graph edges
             # For now, also collect via graph
             for n in nodes:
                 for e in self.db.get_edges_for_node(n.id):
                     if e.target == node_id or e.source in visited_ids:
-                        if e.id not in edge_ids:
-                            edge_ids.add(e.id)
-                            edges.append(e)
+                        _add(e)
             return Subgraph(nodes=nodes, edges=edges, generation_id=gen)
 
         return self._cached(("blast_radius", node_id, max_depth), _compute)

@@ -35,6 +35,20 @@ def start(
     db_path: Path | None = typer.Option(
         None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
     ),
+    plugins: str | None = typer.Option(
+        None,
+        help=(
+            "Comma-separated plugin languages to enable (e.g. python,kdl). "
+            "Overrides REPO_NAVIGATOR_PLUGINS."
+        ),
+    ),
+    parse_unreferenced: bool | None = typer.Option(
+        None,
+        help=(
+            "Parse every enabled-plugin file even when not referenced by Nix "
+            "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
+        ),
+    ),
 ) -> None:
     """Start the MCP server (stdio transport)."""
     import asyncio
@@ -42,7 +56,13 @@ def start(
     from repo_navigator.config import Config
     from repo_navigator.mcp_server import create_mcp_server
 
-    cfg = Config(root=root or Path.cwd(), db_path=db_path)  # type: ignore[arg-type]
+    kwargs: dict[str, object] = {"root": root or Path.cwd(), "db_path": db_path}
+    if plugins is not None:
+        kwargs["plugins"] = [p.strip() for p in plugins.split(",") if p.strip()]
+    if parse_unreferenced is not None:
+        kwargs["parse_unreferenced"] = parse_unreferenced
+
+    cfg = Config(**kwargs)  # type: ignore[arg-type]
     server = create_mcp_server(config=cfg)
 
     async def _run() -> None:

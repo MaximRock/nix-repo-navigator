@@ -12,6 +12,8 @@ Every response includes `generation_id` (SQLite `generation` table, `inc` on eac
 | `hop` | `query hop <node> --relation imports --depth 2 --width 10` | `repo_navigator_hop` | `node_id`, `relation?`, `depth≤10`, `width` | `width*depth≤100` | `Subgraph{nodes, edges, generation_id}` |
 | `path` | `query path <src> <dst>` | `repo_navigator_path` | `source`, `target` | — | `list[PathStep{node, edge_in, depth}]` (Dijkstra, weight) |
 | `blast_radius` | `query blast <node> --max-depth 5` | `repo_navigator_blast_radius` | `node_id`, `max_depth≤10` | — | `Subgraph` (reverse BFS) |
+| `dependencies` | `query dependencies <node> --max-depth 5` | `repo_navigator_dependencies` | `node_id`, `max_depth≤10` | — | `DependenciesReport{target, depends_on: list[DependencyEntry{node, steps, depth}], max_depth, generation_id}` |
+| `dependents` | `query dependents <node> --max-depth 5` | `repo_navigator_dependents` | `node_id`, `max_depth≤10` | — | `DependentsReport{target, dependents: list[DependencyEntry{node, steps, depth}], max_depth, generation_id}` |
 | `find_symbol` | `query find <q> --fuzzy --lang nix` | `repo_navigator_find_symbol` | `query`, `lang?`, `fuzzy`, `limit=10` | — | `list[Node]` (FTS5 or LIKE) |
 | `summarize_module` | `query summarize <path>` | `repo_navigator_summarize_module` | `path` (e.g. `a.nix`) | — | `ModuleSummary{incoming_edges, outgoing_edges, key_symbols, generation_id}` |
 | `impact_analysis` | `query impact <node>` | `repo_navigator_impact_analysis` | `node_id`, `max_depth` | — | `ImpactReport{target, affected_modules/options/files, risk_level, generation_id}` |
@@ -21,6 +23,39 @@ Every response includes `generation_id` (SQLite `generation` table, `inc` on eac
 | `introspect_option` | `query option <path> --eval` | `repo_navigator_introspect_option` | `option_path`, `include_value` | — | `OptionInfo{opt_type,default,example,description,declared_in,defined_in,conditional_sets,value,value_status,generation_id}` |
 | `eval_expression` | `query eval "1+1"` | `repo_navigator_eval_expression` | `expr`, `timeout≤120` | — | `EvalResult{expr,value_json,status,error,cached,generation_id}` (cache `option_values`, `source_rev` from `flake.lock`) |
 
+### `eval_expression` — expression syntax
+
+`eval_expression` evaluates via `nix eval --json --impure --expr <expr>`.
+There are **no injected bindings** — the expression runs in an empty,
+impure Nix namespace, so a flake URL like `nixpkgs#lib.version` fails with
+`error: undefined variable 'nixpkgs'`. Use one of:
+
+- Pure expressions: `1 + 2`, `builtins.toString 42`
+- Flake attributes via the flake registry:
+  `builtins.getFlake "nixpkgs"` (then `.lib.version`),
+  or a full attribute form `(builtins.getFlake "nixpkgs").lib.version`
+- Repo-local eval is NOT wired: `eval_expression` cannot see the repo's own
+  `flake.nix` outputs. To evaluate a repo option, prefer `introspect_option`
+  with `include_value=true`, which builds `config.<option_path>` itself.
+
+Note that `builtins.getFlake` resolves through the machine's flake registry,
+so `nixpkgs` must be registered or a full URI given
+(e.g. `github:NixOS/nixpkgs/nixos-unstable`).
+
+### `introspect_option` — scope (repo-local only)
+
+`introspect_option` answers from the **repo's own graph**: the option node must
+exist (declared via `options.<path> = lib.mkOption {...}` in a module of this
+repo) and its `declares`/`sets` edges must target `nix_option:<path>`.
+
+An option defined by nixpkgs itself — e.g. `system.stateVersion`, virtually
+every `services.*`/`programs.*` option — is **not** in the index, so
+`declared_in`/`defined_in` are empty and `opt_type`/`default`/`description`
+are `null`. To also get its value, use `include_value=true`, which evaluates
+`config.<option_path>` via nix separately. This is expected: the tool is a
+repo-introspection verb, not a nixpkgs option browser (use
+`manix`/`nixos-option` for that).
+
 ## System
 
 | `status` | `query status` / `status` | `repo_navigator_status` | — | — | `StatusResponse{mode: static|hybrid (which nix), total_nodes, total_edges, uptime, sync_progress, generation_id}` |
@@ -28,6 +63,11 @@ Every response includes `generation_id` (SQLite `generation` table, `inc` on eac
 | `flake-inputs` | `query flake-inputs` | `repo_navigator_list_flake_inputs` | — | — | `list[{name,url,rev}]` |
 | `packages` | `query packages [query]` | `repo_navigator_list_packages` | `query?`, `limit=50` | — | `list[{attribute,name,version,store_path,meta}]` (mock) |
 | `package` | `query package <attr>` | `repo_navigator_get_package` | `attribute` | — | `dict` or 404 |
+| `report` | `report` | `repo_navigator_report` | — | — | `BenefitReport{queries_served, queries_by_tool, files_served, bytes_not_reread, tokens_estimated_saved, uptime_seconds, generation_id}` |
+
+`report.files_served` counts **distinct source-file paths served through
+queries this session** (deduplicated) — it is *not* the number of indexed
+files. `tokens_estimated_saved = bytes_not_reread // 4`.
 
 ## Examples
 
@@ -40,16 +80,20 @@ nix-repo-navigator query find "services.foo" --fuzzy --limit 5
 nix-repo-navigator query summarize a.nix
 nix-repo-navigator query option services.foo.enable --eval
 nix-repo-navigator query eval "1+1" --timeout 10
+nix-repo-navigator query eval "builtins.getFlake \"nixpkgs\".lib.version"
 nix-repo-navigator query impact nix:b.nix
+nix-repo-navigator query dependencies nix:a.nix --max-depth 3
+nix-repo-navigator query dependents nix:option.nix --max-depth 3
 nix-repo-navigator query flake-inputs
 nix-repo-navigator query packages ripgrep
+nix-repo-navigator report
 ```
 
 MCP (Inspector):
 
 ```bash
 npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --root .
-# tools/list -> 14 tools, call_tool -> structuredContent + generation_id
+# tools/list -> 17 tools, call_tool -> structuredContent + generation_id
 ```
 
 Budgets enforced: `hop` raises `ValueError` if `width*depth>100`, `depth>10` etc. → MCP `ToolError` (`is_error`).

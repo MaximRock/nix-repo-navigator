@@ -13,8 +13,10 @@ from repo_navigator.config import Config
 from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
+from repo_navigator.graph.queries import QueryEngine
 from repo_navigator.indexer.scan import index_repo
 from repo_navigator.models.edges import EdgeType
+from repo_navigator.models.nodes import NodeType
 
 
 def _write(p: Path, content: str) -> None:
@@ -152,6 +154,171 @@ def test_e2e_nested_import_normalisation(tmp_path: Path) -> None:
     # No placeholder ./b.nix
     assert db.get_node("nix:modules/./b.nix") is None
     assert db.get_node("nix:./b.nix") is None
+
+
+def test_e2e_bare_import_edges_and_queries(tmp_path: Path) -> None:
+    # The bug-report scenario: a flake imports ./lib via a let-binding, and
+    # lib/default.nix imports ./overlays.nix and a bare directory path.
+    # Before the fix these produced no `imports` edges, so dependencies/
+    # dependents/observe from a changed file returned nothing.
+    _write(
+        tmp_path / "flake.nix",
+        """
+        { inputs }:
+        let
+          lib = import ./lib;
+        in
+        {
+          nixosConfigurations.host = lib.mkHost {};
+        }
+        """,
+    )
+    _write(
+        tmp_path / "lib" / "default.nix",
+        """
+        { inputs, ... }:
+        let
+          overlays = import ./overlays.nix;
+          nvf = import ./modules/home/editors/configs/nvf-config;
+          inherit (import ./secrets.nix { inherit inputs; }) tokens;
+        in
+        {
+          mkHost = { ... }: { imports = [ ./modules/nixos/base.nix ]; };
+        }
+        """,
+    )
+    _write(
+        tmp_path / "lib" / "overlays.nix", "{ final, prev }: { mypkg = final.hello; }"
+    )
+    _write(tmp_path / "lib" / "secrets.nix", "{ inputs, ... }: { tokens = { }; }")
+    _write(
+        tmp_path
+        / "lib"
+        / "modules"
+        / "home"
+        / "editors"
+        / "configs"
+        / "nvf-config"
+        / "default.nix",
+        "{ config.vim.enable = true; }",
+    )
+    _write(
+        tmp_path / "lib" / "modules" / "nixos" / "base.nix",
+        "{ config.services.openssh.enable = true; }",
+    )
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    edges = db.get_all_edges()
+    # Bare-import edges now exist for let-bindings, nested-call args and
+    # inherit-from, with directory imports resolving to default.nix.
+    assert ("nix:flake.nix", "nix:lib/default.nix", EdgeType.imports) in {
+        (e.source, e.target, e.type) for e in edges
+    }
+    assert ("nix:lib/default.nix", "nix:lib/overlays.nix", EdgeType.imports) in {
+        (e.source, e.target, e.type) for e in edges
+    }
+    assert (
+        "nix:lib/modules/home/editors/configs/nvf-config/default.nix",
+        EdgeType.imports,
+    ) in {(e.target, e.type) for e in edges if e.source == "nix:lib/default.nix"}
+    assert ("nix:lib/default.nix", "nix:lib/secrets.nix", EdgeType.imports) in {
+        (e.source, e.target, e.type) for e in edges
+    }
+
+    # flake -> lib -> overlays : dependencies view of flake reaches lib.
+    q = QueryEngine(db, g, config=cfg)
+    deps = q.dependencies("nix:flake.nix")
+    ids = {d.node.id for d in deps.depends_on}
+    assert "nix:lib/default.nix" in ids
+    assert "nix:lib/overlays.nix" in ids
+
+    # dependents view of a leaf: overlays is reachable from flake chain.
+    dents = q.dependents("nix:lib/overlays.nix")
+    d_ids = {d.node.id for d in dents.dependents}
+    assert "nix:flake.nix" in d_ids
+    assert "nix:lib/default.nix" in d_ids
+
+    # observe from lib/default.nix lists bare-import neighbors.
+    obs = q.observe("nix:lib/default.nix")
+    nbrs = {nb.node.id for nb in obs.neighbors}
+    assert "nix:lib/overlays.nix" in nbrs
+    assert "nix:lib/modules/home/editors/configs/nvf-config/default.nix" in nbrs
+
+    # BFS (CLI blast/impact path) reaches the same closure.
+    reachable = {n.id for n in g.bfs("nix:lib/default.nix", depth=6, width=20)}
+    assert "nix:lib/overlays.nix" in reachable
+    assert "nix:lib/modules/home/editors/configs/nvf-config/default.nix" in reachable
+
+
+def _node_types(db: Database) -> set[NodeType]:
+    return {n.type for n in db.get_all_nodes()}
+
+
+def test_e2e_python_plugin_activation_qtile_scenario(tmp_path: Path) -> None:
+    # Bug-report scenario: python files live under modules/home/wm/qtile/config/
+    # (directory named `config`, not `.config`), so two gates block them:
+    # 1) plugins must be enabled, 2) parse_unreferenced must be on because no
+    # configures edge targets the individual .py file.
+    _write(
+        tmp_path / "modules" / "home" / "wm" / "qtile" / "config" / "config.py",
+        "import libqtile\nimport logging\n"
+        "def autostart_apps():\n"
+        "    return ['picom']\n",
+    )
+    _write(
+        tmp_path
+        / "modules"
+        / "home"
+        / "wm"
+        / "qtile"
+        / "config"
+        / "settings"
+        / "groups.py",
+        "from libqtile.config import Group\ngroups = [Group('a')]\n",
+    )
+
+    def _index(plugins: list[str], parse_unreferenced: bool) -> Database:
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        cfg = Config(
+            root=tmp_path,
+            plugins=plugins,
+            parse_unreferenced=parse_unreferenced,
+        )
+        index_repo(tmp_path, db, g, config=cfg)
+        return db
+
+    # Gate 1: plugin off -> no py nodes at all.
+    db = _index(plugins=[], parse_unreferenced=False)
+    assert not any(type.value.startswith("py_") for type in _node_types(db))
+
+    # Gate 2: plugin on but no parse_unreferenced -> still nothing (outside
+    # .config/ and not referenced by a configures edge).
+    db = _index(plugins=["python"], parse_unreferenced=False)
+    assert not any(type.value.startswith("py_") for type in _node_types(db))
+
+    # Full activation: module + function + class nodes, python_imports edges,
+    # and no package_ref pollution from stdlib/third-party imports.
+    db = _index(plugins=["python"], parse_unreferenced=True)
+    types = _node_types(db)
+    assert NodeType.python_module in types
+    assert NodeType.py_function in types
+    assert db.get_node("py_func:modules/home/wm/qtile/config/config.py:autostart_apps")
+    edges = db.get_all_edges()
+    assert any(e.type == EdgeType.python_imports for e in edges)
+    # Import targets (libqtile, logging, libqtile.config) are python modules.
+    py_imports = {e.target for e in edges if e.type == EdgeType.python_imports}
+    assert "py_module:libqtile" in py_imports
+    assert "py_module:logging" in py_imports
+    imported = [db.get_node(t) for t in py_imports]
+    assert all(n.type == NodeType.python_module for n in imported if n is not None)
+    assert all(n.type != NodeType.package_ref for n in imported if n is not None)
 
 
 def test_e2e_twopass_discovers_referenced_python_on_first_run(tmp_path: Path) -> None:

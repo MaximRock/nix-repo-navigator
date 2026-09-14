@@ -41,7 +41,7 @@ def create_mcp_server(
     config: Config | None = None,
     engine: QueryEngine | None = None,
 ) -> MCPServer:
-    """Create and return a configured :class:`MCPServer` with 11 tools.
+    """Create and return a configured :class:`MCPServer` with 17 tools.
 
     If *engine* is provided it is used directly (useful for tests).
     Otherwise a new :class:`QueryEngine` is built from *config* (or a
@@ -284,7 +284,7 @@ def create_mcp_server(
 
         Returns:
             BenefitReport dict: ``queries_served``, ``queries_by_tool``,
-            ``files_tracked``, ``bytes_not_reread``,
+            ``files_served``, ``bytes_not_reread``,
             ``tokens_estimated_saved`` (bytes // 4), ``uptime_seconds``
             and ``generation_id``.
         """

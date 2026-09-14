@@ -20,6 +20,7 @@ class NodeType(StrEnum):
     package_ref = "package_ref"
 
     # Tier 1–3 — plugin languages
+    python_module = "python_module"
     py_function = "py_function"
     py_class = "py_class"
     qtile_key = "qtile_key"

@@ -162,6 +162,21 @@ class TestBlastRadius:
         assert "nix:a.nix" in ids
         assert "nix:c.nix" not in ids  # blast excludes source
 
+    def test_blast_no_duplicate_edges(self) -> None:
+        # BUG 2: the first edge-scan never registered edge ids, so the
+        # per-node scan re-appended the same edges -> duplicates.
+        _, _, engine = _setup_chain()
+        sub = engine.blast_radius("nix:c.nix", max_depth=5)
+        edge_ids = [e.id for e in sub.edges]
+        assert len(edge_ids) == len(set(edge_ids))
+        # Intended blast subgraph edges: chain a->b->c plus the declares
+        # edge leaving b (second scan reaches non-blast targets too).
+        assert set(edge_ids) == {
+            "nix:a.nix->imports->nix:b.nix",
+            "nix:b.nix->imports->nix:c.nix",
+            "nix:b.nix->declares->nix_option:services.foo.enable",
+        }
+
     def test_blast_depth_limit(self) -> None:
         _, _, engine = _setup_chain()
         with pytest.raises(ValueError, match="max_depth must be <=10"):
@@ -354,7 +369,7 @@ class TestBenefitReport:
         r = engine.report()
         assert r.queries_served == 0
         assert r.queries_by_tool == {}
-        assert r.files_tracked == 0
+        assert r.files_served == 0
         assert r.bytes_not_reread == 0
         assert r.tokens_estimated_saved == 0
         assert r.generation_id >= 1
@@ -382,7 +397,7 @@ class TestBenefitReport:
         engine = QueryEngine(db, g, config=Config(root=tmp_path, _env_file=None))
         engine.observe("nix:a.nix")
         r = engine.report()
-        assert r.files_tracked == 1
+        assert r.files_served == 1
         assert r.bytes_not_reread == len(content)
         assert r.tokens_estimated_saved == len(content) // 4
         # Repeated lookups do not double-count the same file.

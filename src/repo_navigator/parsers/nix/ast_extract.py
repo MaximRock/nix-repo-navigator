@@ -7,17 +7,21 @@ from pathlib import Path
 from typing import Any
 
 from repo_navigator.parsers.nix.parser import (
+    Assert,
     AttrSet,
     BinaryOp,
     Expr,
     Formals,
     Function,
     FunctionCall,
+    IfThenElse,
     Inherit,
     Interpolation,
+    LetIn,
     List,
     Literal,
     Select,
+    UnaryOp,
     With,
     ast_to_dict,
     parse,
@@ -108,6 +112,7 @@ def extract(expr: Expr) -> ExtractedNix:
     root = _unwrap_root(expr)
     if root is not None:
         _process(root.attrs, result)
+    _collect_bare_imports(expr, result)
     return result
 
 
@@ -315,6 +320,80 @@ def _process(attrs: list, result: ExtractedNix, conditional: bool = False) -> No
                     args=_formal_names(value.arg),
                 )
             )
+
+
+def _collect_bare_imports(expr: Expr, result: ExtractedNix) -> None:
+    """Recursively find bare ``import ./x`` calls and record ``ImportDecl``.
+
+    ``import`` is a builtin function in Nix; a bare call ``import <path>``
+    (in a ``let`` binding, an attribute value, an ``inherit (import …)``
+    source, or nested as a curried call like ``import ./x { … }``) makes the
+    module depend on *that path* even though it is not listed in an
+    ``imports = [ … ]`` attribute.  The ``imports`` attribute itself is
+    handled by :func:`_process_imports` and skipped here so dynamic
+    imports stay ``unresolved`` (matches the historical behaviour).
+    """
+    if isinstance(expr, FunctionCall):
+        name, args = _unwrap_curried(expr)
+        parts = name.rsplit(".", 1)
+        short = parts[-1] if parts else name
+        if short == "import" and args and isinstance(args[0], Literal):
+            path_val = args[0].value
+            if isinstance(path_val, str) and (
+                path_val.startswith("./")
+                or path_val.startswith("../")
+                or path_val.startswith("/")
+            ):
+                result.imports.append(
+                    ImportDecl(path=path_val, line=getattr(expr, "line", 0))
+                )
+                return
+        _collect_bare_imports(expr.func, result)
+        _collect_bare_imports(expr.arg, result)
+    elif isinstance(expr, AttrSet):
+        for attr in expr.attrs:
+            if isinstance(attr.name, Inherit):
+                if attr.name.from_ is not None:
+                    _collect_bare_imports(attr.name.from_, result)
+                continue
+            if isinstance(attr.name, str) and attr.name == "imports":
+                # Handled by _process_imports; dynamic imports stay unresolved.
+                continue
+            if attr.value is not None:
+                _collect_bare_imports(attr.value, result)
+    elif isinstance(expr, List):
+        for item in expr.items:
+            _collect_bare_imports(item, result)
+    elif isinstance(expr, LetIn):
+        for binding in expr.bindings:
+            if isinstance(binding.name, Inherit) and binding.name.from_ is not None:
+                _collect_bare_imports(binding.name.from_, result)
+            if binding.value is not None:
+                _collect_bare_imports(binding.value, result)
+        _collect_bare_imports(expr.body, result)
+    elif isinstance(expr, Function):
+        _collect_bare_imports(expr.body, result)
+    elif isinstance(expr, With):
+        _collect_bare_imports(expr.expr, result)
+        _collect_bare_imports(expr.body, result)
+    elif isinstance(expr, Assert):
+        _collect_bare_imports(expr.assertion, result)
+        _collect_bare_imports(expr.body, result)
+    elif isinstance(expr, IfThenElse):
+        _collect_bare_imports(expr.cond, result)
+        _collect_bare_imports(expr.then_, result)
+        _collect_bare_imports(expr.else_, result)
+    elif isinstance(expr, Select) and expr.base is not None:
+        _collect_bare_imports(expr.base, result)
+    elif isinstance(expr, BinaryOp):
+        _collect_bare_imports(expr.left, result)
+        _collect_bare_imports(expr.right, result)
+    elif isinstance(expr, UnaryOp):
+        _collect_bare_imports(expr.expr, result)
+    elif isinstance(expr, Interpolation):
+        for part in expr.parts:
+            if isinstance(part, Expr):
+                _collect_bare_imports(part, result)
 
 
 # ----------------------------------------------------------- processing

@@ -51,6 +51,53 @@ def test_cli_start_runs_with_mock(tmp_path) -> None:
         assert result.exit_code == 0 or "MCP server" in result.output or mock_run.called
 
 
+class _FakeMcpServer:
+    async def run_stdio_async(self) -> None:
+        return None
+
+
+def test_cli_start_plugin_flags(tmp_path) -> None:
+    # --plugins / --parse-unreferenced are passed through to Config so the
+    # Python plugin can activate from the CLI (previously env-only).
+    captured: dict[str, object] = {}
+
+    def fake_create_mcp_server(*, config=None, engine=None):  # type: ignore[no-untyped-def]
+        captured.update(config.__dict__ if hasattr(config, "__dict__") else {})
+        return _FakeMcpServer()
+
+    with patch("repo_navigator.mcp_server.create_mcp_server", fake_create_mcp_server):
+        result = runner.invoke(
+            app,
+            [
+                "start",
+                "--root",
+                str(tmp_path),
+                "--plugins",
+                "python,kdl",
+                "--parse-unreferenced",
+            ],
+        )
+    assert result.exception is None, result.exception
+    assert captured.get("plugins") == ["python", "kdl"]
+    assert captured.get("parse_unreferenced") is True
+
+
+def test_cli_start_plugin_flags_absent_keep_env(tmp_path) -> None:
+    # Without the flags, no plugins/parse_unreferenced kwarg should be forced,
+    # so REPO_NAVIGATOR_* env vars still apply.
+    captured: dict[str, object] = {}
+
+    def fake_create_mcp_server(*, config=None, engine=None):  # type: ignore[no-untyped-def]
+        captured.update(config.__dict__ if hasattr(config, "__dict__") else {})
+        return _FakeMcpServer()
+
+    with patch("repo_navigator.mcp_server.create_mcp_server", fake_create_mcp_server):
+        result = runner.invoke(app, ["start", "--root", str(tmp_path)])
+    assert result.exception is None, result.exception
+    assert captured.get("plugins", []) == []
+    assert captured.get("parse_unreferenced") is False
+
+
 def test_mcp_error_observe_missing() -> None:
     import asyncio
 
