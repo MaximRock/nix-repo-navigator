@@ -27,3 +27,6 @@ parse_errors.log
 .idea/
 .DS_Store
 .result
+
+# Local bug reports (not committed)
+bug-reports/
