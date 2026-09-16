@@ -25,6 +25,59 @@ class TestImports:
         assert len(r.unresolved) == 1
         assert "dynamic import" in r.unresolved[0].reason
 
+    def test_interpolated_import_via_let_tostring(self) -> None:
+        # BUG-002 F1: same-file `let modulesHome = toString ../../…` must resolve.
+        r = extract_source(
+            "{ config, ... }: let modulesHome = toString ../../modules/home; in"
+            ' { imports = [ "${modulesHome}/ai-agents/comfyui" ]; }'
+        )
+        assert [i.path for i in r.imports] == [
+            "../../modules/home/ai-agents/comfyui"
+        ]
+        assert r.unresolved == []
+
+    def test_interpolated_import_via_plain_path_var(self) -> None:
+        r = extract_source(
+            'let d = ../shared; in { imports = [ "${d}/x.nix" ]; }'
+        )
+        assert [i.path for i in r.imports] == ["../shared/x.nix"]
+        assert r.unresolved == []
+
+    def test_interpolated_import_absolute_var(self) -> None:
+        r = extract_source(
+            'let d = /etc/nixos; in { imports = [ "${d}/hw.nix" ]; }'
+        )
+        assert [i.path for i in r.imports] == ["/etc/nixos/hw.nix"]
+
+    def test_interpolated_import_unresolvable_stays_unresolved(self) -> None:
+        r = extract_source('{ imports = [ "${system}/foo.nix" ]; }')
+        assert r.imports == []
+        assert len(r.unresolved) == 1
+        assert "interpolation in import" in r.unresolved[0].reason
+
+    def test_interpolated_import_chained_var_stays_unresolved(self) -> None:
+        # Single-level only: var→var chains are not followed.
+        r = extract_source(
+            'let a = ../x; b = a; in { imports = [ "${b}/y.nix" ]; }'
+        )
+        assert r.imports == []
+        assert len(r.unresolved) == 1
+
+    def test_interpolated_import_in_local_let(self) -> None:
+        r = extract_source(
+            'let d = ../shared; in { imports = let e = "${d}"; in [ "${e}/x.nix" ]; }'
+        )
+        # Inner `e` binds an interpolation (not a static string) → unresolved.
+        assert r.imports == []
+        assert len(r.unresolved) == 1
+
+    def test_interpolated_imports_list_in_local_let(self) -> None:
+        r = extract_source(
+            '{ imports = let d = ../shared; in [ "${d}/x.nix" ]; }'
+        )
+        assert [i.path for i in r.imports] == ["../shared/x.nix"]
+        assert r.unresolved == []
+
 
 class TestBareImports:
     def test_import_in_let_binding(self) -> None:

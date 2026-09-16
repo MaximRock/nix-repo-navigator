@@ -49,6 +49,47 @@ def test_index_flake_inputs(tmp_path: Path) -> None:
     assert len(listed) == 2
 
 
+def test_index_flake_input_follows_edges(tmp_path: Path) -> None:
+    # BUG-002 F3: lock `inputs` (follows) become traversable `references` edges.
+    lock = {
+        "nodes": {
+            "root": {"inputs": {"comfyui-nix": "comfyui-nix"}},
+            "comfyui-nix": {
+                "locked": {"type": "github", "owner": "o", "repo": "comfyui-nix", "rev": "aaa"},
+                "inputs": {"flake-parts": "flake-parts", "nixpkgs": "nixpkgs"},
+            },
+            "flake-parts": {
+                "locked": {"type": "github", "owner": "o", "repo": "flake-parts", "rev": "bbb"}
+            },
+            "nixpkgs": {
+                "locked": {"type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "ccc"}
+            },
+        },
+        "root": "root",
+        "version": 7,
+    }
+    (tmp_path / "flake.lock").write_text(json.dumps(lock))
+    (tmp_path / "a.nix").write_text("{ config.x = 1; }")
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    engine = QueryEngine(db, g, config=cfg)
+    sub = engine.hop("flake_input:comfyui-nix")
+    targets = {e.target for e in sub.edges}
+    assert "flake_input:flake-parts" in targets
+    assert "flake_input:nixpkgs" in targets
+    # Relation filter sees them as `references`.
+    sub_ref = engine.hop("flake_input:comfyui-nix", relation="references")
+    assert {e.target for e in sub_ref.edges} == {
+        "flake_input:flake-parts",
+        "flake_input:nixpkgs",
+    }
+
+
 def test_query_flake_cli(tmp_path: Path) -> None:
     from typer.testing import CliRunner
     from repo_navigator.cli import app

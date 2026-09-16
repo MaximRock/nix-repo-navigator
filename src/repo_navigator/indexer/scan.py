@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from repo_navigator.config import Config
-from repo_navigator.graph.builder import GraphBuilder
+from repo_navigator.graph.builder import GraphBuilder, _edge_id
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.parsers.registry import (
@@ -20,6 +21,9 @@ from repo_navigator.parsers.registry import (
     safe_parse,
     should_parse_file,
 )
+
+if TYPE_CHECKING:
+    from repo_navigator.parsers.nix.flake_parser import FlakeInput
 
 log = logging.getLogger(__name__)
 
@@ -301,6 +305,9 @@ def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
                     nx_graph.apply_delta(added_nodes=[existing])
                 except Exception:
                     pass
+    # Edges for lock `inputs` (follows) between flake inputs (BUG-002 F3).
+    _index_flake_input_edges(db, nx_graph, inputs)
+
     # Purge stale flake inputs (those in DB but not in current lock)
     try:
         existing_inputs = {
@@ -321,6 +328,56 @@ def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
                 pass
     except Exception:
         pass
+
+
+def _index_flake_input_edges(
+    db: Database, nx_graph: NxGraph, inputs: list[FlakeInput]
+) -> None:
+    """Emit ``references`` edges for flake.lock follows (BUG-002 F3).
+
+    For every ``nodes.<name>.inputs`` entry, creates
+    ``flake_input:<name> -references-> flake_input:<target>`` so
+    ``hop``/``dependents`` traverse input-to-input dependencies.
+    Both endpoints must exist as graph nodes; anything else is skipped.
+    Edge ids reuse the builder convention so rescans upsert idempotently.
+    """
+    from repo_navigator.models.edges import Edge, EdgeType
+
+    edges: dict[str, Edge] = {}
+    for inp in inputs:
+        follows = getattr(inp, "inputs", None) or {}
+        if not isinstance(follows, dict):
+            continue
+        src = f"flake_input:{inp.name}"
+        if db.get_node(src) is None:
+            continue
+        for local_name, targets in follows.items():
+            if not isinstance(targets, list):
+                continue
+            for target_name in targets:
+                tgt = f"flake_input:{target_name}"
+                if target_name == inp.name or db.get_node(tgt) is None:
+                    continue
+                meta = {"via": "flake.lock", "input": local_name}
+                edge_id = _edge_id(src, EdgeType.references, tgt, meta)
+                if edge_id not in edges:
+                    edges[edge_id] = Edge(
+                        id=edge_id,
+                        source=src,
+                        target=tgt,
+                        type=EdgeType.references,
+                        metadata=meta,
+                    )
+    for edge in edges.values():
+        try:
+            db.upsert_edge(edge)
+        except Exception:
+            log.debug("upsert flake-input edge failed for %s", edge.id, exc_info=True)
+    if edges:
+        try:
+            nx_graph.apply_delta(added_edges=list(edges.values()))
+        except Exception:
+            log.debug("nx_graph edge delta failed", exc_info=True)
 
 
 def _purge_paths(db: Database, nx_graph: NxGraph, stale_paths: set[str | None]) -> None:

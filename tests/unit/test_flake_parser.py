@@ -58,6 +58,58 @@ def test_parse_flake_nix_not_found(tmp_path: Path) -> None:
     assert parse_flake_nix(tmp_path / "nope.nix") == []
 
 
+def test_parse_flake_lock_follows_inputs(tmp_path: Path) -> None:
+    # BUG-002 F3: `nodes.<name>.inputs` (follows) must be captured.
+    lock = {
+        "nodes": {
+            "root": {"inputs": {"comfyui-nix": "comfyui-nix"}},
+            "comfyui-nix": {
+                "locked": {"type": "github", "owner": "o", "repo": "comfyui-nix", "rev": "aaa"},
+                "inputs": {"flake-parts": "flake-parts", "nixpkgs": "nixpkgs"},
+            },
+            "flake-parts": {"locked": {"type": "github", "owner": "o", "repo": "flake-parts", "rev": "bbb"}},
+            "nixpkgs": {
+                "locked": {"type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "ccc"},
+                "inputs": {"flake-parts": ["comfyui-nix", "flake-parts"]},
+            },
+        },
+        "root": "root",
+        "version": 7,
+    }
+    p = tmp_path / "flake.lock"
+    p.write_text(json.dumps(lock))
+    inputs = parse_flake_lock(p)
+    by_name = {i.name for i in inputs}
+    assert by_name == {"comfyui-nix", "flake-parts", "nixpkgs"}
+    comfy = next(i for i in inputs if i.name == "comfyui-nix")
+    assert comfy.inputs == {"flake-parts": ["flake-parts"], "nixpkgs": ["nixpkgs"]}
+    # List-form follows indirection is kept as-is.
+    nixpkgs = next(i for i in inputs if i.name == "nixpkgs")
+    assert nixpkgs.inputs == {"flake-parts": ["comfyui-nix", "flake-parts"]}
+    assert next(i for i in inputs if i.name == "flake-parts").inputs == {}
+
+
+def test_parse_flake_lock_follows_filters_unknown_and_self(tmp_path: Path) -> None:
+    lock = {
+        "nodes": {
+            "root": {},
+            "a": {
+                "locked": {"type": "github", "owner": "o", "repo": "a", "rev": "1"},
+                "inputs": {"b": "b", "ghost": "ghost", "me": "a"},
+            },
+            "b": {"locked": {"type": "github", "owner": "o", "repo": "b", "rev": "2"}},
+        },
+        "root": "root",
+        "version": 7,
+    }
+    p = tmp_path / "flake.lock"
+    p.write_text(json.dumps(lock))
+    inputs = parse_flake_lock(p)
+    a = next(i for i in inputs if i.name == "a")
+    # Unknown `ghost` and self-loop `me` are dropped; `root` never a node.
+    assert a.inputs == {"b": ["b"]}
+
+
 def test_parse_flake_nix_simple(tmp_path: Path) -> None:
     content = """
     {

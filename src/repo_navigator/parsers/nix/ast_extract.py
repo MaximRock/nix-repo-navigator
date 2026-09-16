@@ -124,9 +124,10 @@ class ExtractedNix:
 def extract(expr: Expr) -> ExtractedNix:
     """Walk *expr* and return structured extraction."""
     result = ExtractedNix()
+    let_env = _collect_let_env(expr)
     root = _unwrap_root(expr)
     if root is not None:
-        _process(root.attrs, result)
+        _process(root.attrs, result, let_env=let_env)
     _collect_bare_imports(expr, result)
     return result
 
@@ -149,6 +150,86 @@ def _unwrap_root(expr: Expr) -> AttrSet | None:
     if expr.type == "LetIn" and hasattr(expr, "body"):
         return _unwrap_root(expr.body)
     return None
+
+
+def _collect_let_env(expr: Expr) -> dict[str, Expr]:
+    """Collect same-file ``let`` bindings along the module wrapper chain.
+
+    Walks ``Function → With → LetIn`` wrappers (the same chain
+    :func:`_unwrap_root` follows) and maps binding names to their value
+    expressions.  Inner bindings shadow outer ones.  Used to resolve
+    single-level references such as ``"${modulesHome}/…"`` where
+    ``modulesHome = toString ../../modules/home``.
+    """
+    env: dict[str, Expr] = {}
+    node: Expr | None = expr
+    while node is not None:
+        if isinstance(node, Function):
+            node = node.body
+        elif isinstance(node, With):
+            node = node.body
+        elif isinstance(node, LetIn):
+            for binding in node.bindings:
+                if isinstance(binding.name, str) and binding.value is not None:
+                    env[binding.name] = binding.value
+            node = node.body
+        else:
+            break
+    return env
+
+
+def _resolve_static_string(expr: Expr, env: dict[str, Expr]) -> str | None:
+    """Resolve *expr* to a static string via a single let-env hop.
+
+    Handles path/string literals, ``toString <path>`` calls, and bare
+    single-name selects bound in *env* (unwrapping one ``toString`` level).
+    Anything else — including chained var→var references — returns ``None``.
+    """
+    if (
+        isinstance(expr, Select)
+        and expr.base is None
+        and len(expr.path) == 1
+        and expr.path[0] in env
+    ):
+        expr = env[expr.path[0]]
+    if isinstance(expr, Literal):
+        if expr.value_type in ("path", "string") and isinstance(expr.value, str):
+            return expr.value
+        return None
+    if isinstance(expr, FunctionCall):
+        name, args = _unwrap_curried(expr)
+        short = name.rsplit(".", 1)[-1] if name else name
+        if short == "toString" and len(args) == 1:
+            arg = args[0]
+            if (
+                isinstance(arg, Literal)
+                and arg.value_type in ("path", "string")
+                and isinstance(arg.value, str)
+            ):
+                return arg.value
+        return None
+    return None
+
+
+def _render_interpolation(item: Interpolation, env: dict[str, Expr]) -> str | None:
+    """Render an interpolation to a static string, or ``None`` if dynamic.
+
+    Every part must be a string fragment or resolvable via
+    :func:`_resolve_static_string`; a single unresolvable part (e.g.
+    ``${system}``) keeps the whole interpolation dynamic.
+    """
+    out: list[str] = []
+    for part in item.parts:
+        if isinstance(part, str):
+            out.append(part)
+        elif isinstance(part, Expr):
+            rendered = _resolve_static_string(part, env)
+            if rendered is None:
+                return None
+            out.append(rendered)
+        else:
+            return None
+    return "".join(out)
 
 
 def _is_interpolation(expr: Expr) -> bool:
@@ -273,7 +354,12 @@ def _parse_option_meta(arg: Expr) -> dict[str, Any]:
 # ----------------------------------------------------------------- walker
 
 
-def _process(attrs: list, result: ExtractedNix, conditional: bool = False) -> None:
+def _process(
+    attrs: list,
+    result: ExtractedNix,
+    conditional: bool = False,
+    let_env: dict[str, Expr] | None = None,
+) -> None:
     for attr in attrs:
         if isinstance(attr.name, Inherit):
             continue
@@ -286,7 +372,7 @@ def _process(attrs: list, result: ExtractedNix, conditional: bool = False) -> No
             continue
 
         if name == "imports":
-            _process_imports(value, result, conditional)
+            _process_imports(value, result, conditional, let_env)
             continue
 
         if name == "options":
@@ -294,7 +380,7 @@ def _process(attrs: list, result: ExtractedNix, conditional: bool = False) -> No
             continue
 
         if name == "config":
-            _process_config(value, result, conditional)
+            _process_config(value, result, conditional, let_env)
             continue
 
         if name == "specialisation":
@@ -306,7 +392,7 @@ def _process(attrs: list, result: ExtractedNix, conditional: bool = False) -> No
             continue
 
         if name == "home":
-            _process_home(value, result, conditional)
+            _process_home(value, result, conditional, let_env)
             continue
 
         if name == "xdg":
@@ -314,18 +400,18 @@ def _process(attrs: list, result: ExtractedNix, conditional: bool = False) -> No
             continue
 
         if name == "programs":
-            _process_programs(value, result, conditional)
+            _process_programs(value, result, conditional, let_env)
             continue
 
         mkif_blocks = _detect_mkif_blocks(value)
         if mkif_blocks:
             for block in mkif_blocks:
                 if isinstance(block, AttrSet):
-                    _process(block.attrs, result, conditional=True)
+                    _process(block.attrs, result, conditional=True, let_env=let_env)
             continue
 
         if isinstance(value, AttrSet):
-            _process(value.attrs, result, conditional)
+            _process(value.attrs, result, conditional, let_env)
             continue
 
         if isinstance(value, Function):
@@ -472,13 +558,24 @@ def _collect_modules_list(value: List, result: ExtractedNix) -> None:
 
 
 def _process_imports(
-    value: Expr, result: ExtractedNix, conditional: bool
+    value: Expr,
+    result: ExtractedNix,
+    conditional: bool,
+    let_env: dict[str, Expr] | None = None,
 ) -> None:
+    env = let_env or {}
     if not isinstance(value, List):
         if isinstance(value, Literal):
             result.imports.append(
                 ImportDecl(path=str(value.value), conditional=conditional)
             )
+        elif isinstance(value, LetIn):
+            # `imports = let … in [ … ]`: merge local bindings, then recurse.
+            inner_env = dict(env)
+            for binding in value.bindings:
+                if isinstance(binding.name, str) and binding.value is not None:
+                    inner_env[binding.name] = binding.value
+            _process_imports(value.body, result, conditional, inner_env)
         return
     for item in value.items:
         if isinstance(item, Literal) and item.value_type == "path":
@@ -509,12 +606,22 @@ def _process_imports(
                 )
             )
         elif isinstance(item, Interpolation):
-            result.unresolved.append(
-                UnresolvedRef(
-                    location=str(item),
-                    reason="interpolation in import",
+            rendered = _render_interpolation(item, env)
+            if rendered is not None and (
+                rendered.startswith("./")
+                or rendered.startswith("../")
+                or rendered.startswith("/")
+            ):
+                result.imports.append(
+                    ImportDecl(path=rendered, conditional=conditional)
                 )
-            )
+            else:
+                result.unresolved.append(
+                    UnresolvedRef(
+                        location=str(item),
+                        reason="interpolation in import",
+                    )
+                )
 
 
 def _process_options(
@@ -632,7 +739,10 @@ def _walk_options_recursive(
 
 
 def _process_config(
-    value: Expr, result: ExtractedNix, conditional: bool
+    value: Expr,
+    result: ExtractedNix,
+    conditional: bool,
+    let_env: dict[str, Expr] | None = None,
 ) -> None:
     if isinstance(value, AttrSet):
         _walk_config_recursive(value.attrs, [], result, conditional)
@@ -646,7 +756,9 @@ def _process_config(
                 # Walk for configs (produces config entries for all attrs)
                 _walk_config_recursive(block.attrs, [], result, conditional=True)
                 # Also scan for imports, options, etc. inside the block
-                _scan_special_attrs(block.attrs, result, conditional=True)
+                _scan_special_attrs(
+                    block.attrs, result, conditional=True, let_env=let_env
+                )
         return
 
     priority, inner = _detect_priority(value)
@@ -661,7 +773,10 @@ def _process_config(
 
 
 def _scan_special_attrs(
-    attrs: list, result: ExtractedNix, conditional: bool
+    attrs: list,
+    result: ExtractedNix,
+    conditional: bool,
+    let_env: dict[str, Expr] | None = None,
 ) -> None:
     """Scan *attrs* for imports, options, specialisations, etc.
 
@@ -678,7 +793,7 @@ def _scan_special_attrs(
             continue
 
         if name == "imports":
-            _process_imports(value, result, conditional)
+            _process_imports(value, result, conditional, let_env)
         elif name == "options":
             _process_options(value, result, conditional)
         elif name == "specialisation":
@@ -686,11 +801,11 @@ def _scan_special_attrs(
         elif name == "_module":
             _process_module_args(value, result)
         elif name == "home":
-            _process_home(value, result, conditional)
+            _process_home(value, result, conditional, let_env)
         elif name == "xdg":
             _process_xdg(value, result, conditional)
         elif name == "programs":
-            _process_programs(value, result, conditional)
+            _process_programs(value, result, conditional, let_env)
 
 
 def _walk_config_recursive(
@@ -770,7 +885,10 @@ def _process_module_args(value: Expr, result: ExtractedNix) -> None:
 
 
 def _process_home(
-    value: Expr, result: ExtractedNix, conditional: bool
+    value: Expr,
+    result: ExtractedNix,
+    conditional: bool,
+    let_env: dict[str, Expr] | None = None,
 ) -> None:
     if not isinstance(value, AttrSet):
         return
@@ -780,7 +898,7 @@ def _process_home(
         if attr.name == "file" and isinstance(attr.value, AttrSet):
             _process_home_file(attr.value, result)
         elif attr.name == "packages":
-            _process_home_packages(attr.value, result)
+            _process_home_packages(attr.value, result, let_env)
         elif attr.name == "sessionVariables" and isinstance(attr.value, AttrSet):
             for var_attr in attr.value.attrs:
                 if isinstance(var_attr.name, str):
@@ -822,14 +940,57 @@ def _process_home_file(attrs: AttrSet, result: ExtractedNix) -> None:
                     )
 
 
-def _process_home_packages(value: Expr, result: ExtractedNix) -> None:
+def _inputs_ref_of_select(sel: Select) -> ModuleRef | None:
+    """Map an ``inputs.<name>.…`` select to a flake-input reference.
+
+    Returns ``None`` for anything else.  Reuses :class:`ModuleRef` so the
+    existing ``references → flake_input:<name>`` edge machinery applies.
+    """
+    if sel.base is None and sel.path and sel.path[0] == "inputs" and len(sel.path) > 1:
+        line = getattr(sel, "line", 0)
+        # Dynamic segments arrive as `[{...json...}]` blobs (see
+        # `_read_attr_segment`); collapse them to `…` like `_parse_attrpath`.
+        rest = ["…" if seg.startswith("[") else seg for seg in sel.path[2:]]
+        return ModuleRef(
+            name=sel.path[1],
+            select=".".join(rest) or None,
+            line=line if isinstance(line, int) else 0,
+        )
+    return None
+
+
+def _inputs_ref_via_let_env(item: Select, env: dict[str, Expr]) -> ModuleRef | None:
+    """Resolve a bare package var through *env* to an inputs reference.
+
+    E.g. ``home.packages = [ comfy-ui ]`` with
+    ``comfy-ui = …`` / ``comfyui = inputs.comfyui-nix.packages.…`` bound in
+    the same file's ``let``.  Single hop only.
+    """
+    direct = _inputs_ref_of_select(item)
+    if direct is not None:
+        return direct
+    if (
+        item.base is None
+        and len(item.path) == 1
+        and item.path[0] in env
+        and isinstance(env[item.path[0]], Select)
+    ):
+        return _inputs_ref_of_select(env[item.path[0]])
+    return None
+
+
+def _process_home_packages(
+    value: Expr, result: ExtractedNix, let_env: dict[str, Expr] | None = None
+) -> None:
+    env = let_env or {}
     if not isinstance(value, List):
         return
     for item in value.items:
         if isinstance(item, Select) and item.base is None and item.path:
-            result.packages.append(
-                PackageRef(attribute=".".join(item.path))
-            )
+            result.packages.append(PackageRef(attribute=".".join(item.path)))
+            ref = _inputs_ref_via_let_env(item, env)
+            if ref is not None:
+                result.modules.append(ref)
         elif isinstance(item, Literal):
             result.packages.append(PackageRef(attribute=str(item.value)))
 
@@ -847,10 +1008,14 @@ def _process_xdg(
 
 
 def _process_programs(
-    value: Expr, result: ExtractedNix, conditional: bool
+    value: Expr,
+    result: ExtractedNix,
+    conditional: bool,
+    let_env: dict[str, Expr] | None = None,
 ) -> None:
     if not isinstance(value, AttrSet):
         return
+    env = let_env or {}
     for prog_attr in value.attrs:
         if isinstance(prog_attr.name, Inherit) or not isinstance(
             prog_attr.name, str
@@ -879,6 +1044,9 @@ def _process_programs(
                             else attr_path
                         )
                     )
+                    ref = _inputs_ref_via_let_env(field_attr.value, env)
+                    if ref is not None:
+                        result.modules.append(ref)
                 elif isinstance(field_attr.value, Literal):
                     result.packages.append(
                         PackageRef(attribute=str(field_attr.value.value))

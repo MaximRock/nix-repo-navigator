@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,11 @@ class FlakeInput:
     rev: str | None
     nar_hash: str | None = None
     type: str | None = None
+    # Follows map: local input name → target lock-node names.
+    # E.g. ``comfyui-nix.inputs = { flake-parts, nixpkgs }`` becomes
+    # ``{"flake-parts": ["flake-parts"], "nixpkgs": ["nixpkgs"]}``.
+    # List values in the lock (follows indirections) are kept as-is.
+    inputs: dict[str, list[str]] = field(default_factory=dict)
 
 
 def parse_flake_lock(path: str | Path) -> list[FlakeInput]:
@@ -64,11 +69,57 @@ def parse_flake_lock(path: str | Path) -> list[FlakeInput]:
         nar_hash = locked.get("narHash")
         type_ = locked.get("type") or original.get("type")
 
-        result.append(FlakeInput(name=name, url=url, rev=rev, nar_hash=nar_hash, type=type_))
+        follows = _parse_follows(node.get("inputs"))
+
+        result.append(
+            FlakeInput(
+                name=name,
+                url=url,
+                rev=rev,
+                nar_hash=nar_hash,
+                type=type_,
+                inputs=follows,
+            )
+        )
 
     # Sort for determinism
     result.sort(key=lambda x: x.name)
-    return result
+
+    # Keep only targets that are real lock nodes (drop `root` and self-loops).
+    known = {i.name for i in result}
+    final: list[FlakeInput] = []
+    for inp in result:
+        if not inp.inputs:
+            final.append(inp)
+            continue
+        kept = {
+            local: [t for t in targets if t in known and t != inp.name]
+            for local, targets in inp.inputs.items()
+        }
+        kept = {local: targets for local, targets in kept.items() if targets}
+        final.append(replace(inp, inputs=kept))
+    return final
+
+
+def _parse_follows(raw: Any) -> dict[str, list[str]]:
+    """Normalise a lock-node ``inputs`` map to ``{local: [targets]}``.
+
+    Values are node names (``str``) or follows-indirection chains
+    (``list[str]``); anything else is ignored.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    follows: dict[str, list[str]] = {}
+    for local_name, target in raw.items():
+        if not isinstance(local_name, str):
+            continue
+        if isinstance(target, str):
+            follows[local_name] = [target]
+        elif isinstance(target, list):
+            names = [t for t in target if isinstance(t, str)]
+            if names:
+                follows[local_name] = names
+    return follows
 
 
 def parse_flake_nix(path: str | Path) -> list[str]:
@@ -125,8 +176,8 @@ def parse_flake_nix(path: str | Path) -> list[str]:
                 if value is not None:
                     _walk_expr(value)
         # Also handle LetIn etc. - recurse into body if present
-        for field in ("body", "value", "expr"):
-            child = getattr(expr, field, None)
+        for attr_name in ("body", "value", "expr"):
+            child = getattr(expr, attr_name, None)
             if child is not None and child is not expr:
                 _walk_expr(child)
 
