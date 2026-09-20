@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.indexer.update_engine import UpdateEngine
@@ -122,6 +121,22 @@ class TestUpdateEngine:
         assert st_a is not None
         assert st_a.dirty is True
         assert "a.nix" in result["affected"]
+
+    def test_deleted_file_prunes_orphan_synthetic(self, tmp_path: Path) -> None:
+        # BUG-004 D5: watch-mode deletion also GC's the orphaned
+        # synthetic placeholder (here nix_option:x, only set by b.nix).
+        _write(tmp_path / "b.nix", "{ config.x = 1; }")
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        engine = UpdateEngine(db, g, root=tmp_path)
+        engine.process_file("b.nix")
+        assert db.get_node("nix_option:x") is not None
+        (tmp_path / "b.nix").unlink()
+        result = engine.process_file("b.nix")
+        assert result["reason"] == "deleted"
+        assert db.get_node("nix_option:x") is None
+        assert not g.has_node("nix_option:x")
 
     def test_process_file_absolute_path(self, tmp_path: Path) -> None:
         _write(tmp_path / "a.nix", "{ config.x = 1; }")

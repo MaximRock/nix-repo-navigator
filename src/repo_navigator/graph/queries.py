@@ -8,6 +8,8 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
+import networkx as nx
+
 from repo_navigator.config import Config
 from repo_navigator.graph.builder import _placeholder_for_target
 from repo_navigator.graph.db import Database
@@ -51,8 +53,23 @@ class QueryEngine:
     """Navigation verbs with LRU cache bound to ``generation_id``."""
 
     #: Edge types that express a "depends on" relation (used by dependencies/dependents).
+    #: Forward navigation covers every semantic outgoing edge of a module
+    #: (BUG-004 D1): imports/requires (file deps), references (flake inputs),
+    #: uses_package (packages), sets (options this module configures),
+    #: configures/generates (managed files). Structural edges (declares,
+    #: specialises, passes_args) are excluded: declaring an option is not a
+    #: dependency on it.
     _DEPENDENCY_TYPES = frozenset(
-        {EdgeType.imports, EdgeType.requires, EdgeType.python_imports}
+        {
+            EdgeType.imports,
+            EdgeType.requires,
+            EdgeType.python_imports,
+            EdgeType.references,
+            EdgeType.uses_package,
+            EdgeType.sets,
+            EdgeType.configures,
+            EdgeType.generates,
+        }
     )
 
     def __init__(
@@ -412,7 +429,21 @@ class QueryEngine:
                 raise ValueError("max_depth must be <=10")
             gen = self.db.get_generation_id()
             nodes = self.nx_graph.reverse_bfs(node_id, max_depth=max_depth)
-            # Collect edges for the subgraph (reverse edges)
+            visited_ids = {n.id for n in nodes} | {node_id}
+            # BUG-004 D4: keep only edges lying on some path to the target.
+            # An edge u->v is relevant iff v itself can reach the target
+            # (then u reaches it too via this edge). Sibling imports of
+            # visited modules (v cannot reach the target) are excluded.
+            graph = self.nx_graph.get_graph_readonly()
+            can_reach: set[str] = set()
+            if graph.has_node(node_id):
+                for nid in visited_ids:
+                    if nid == node_id:
+                        can_reach.add(nid)
+                    elif graph.has_node(nid) and nx.has_path(graph, nid, node_id):
+                        can_reach.add(nid)
+            else:
+                can_reach.add(node_id)
             edge_ids: set[str] = set()
             edges: list[Edge] = []
 
@@ -421,20 +452,9 @@ class QueryEngine:
                     edge_ids.add(e.id)
                     edges.append(e)
 
-            # For each node in blast, collect incoming edges that are part of blast
-            # We can get all edges and filter where target in visited set
-            visited_ids = {n.id for n in nodes} | {node_id}
             for e in self.db.get_all_edges():
-                if e.source in visited_ids and e.target in visited_ids:
-                    # Only include if edge is on a path that leads to node_id?
-                    # For simplicity, include all edges among visited + source
+                if e.source in visited_ids and e.target in can_reach:
                     _add(e)
-            # Alternative: use graph edges
-            # For now, also collect via graph
-            for n in nodes:
-                for e in self.db.get_edges_for_node(n.id):
-                    if e.target == node_id or e.source in visited_ids:
-                        _add(e)
             return Subgraph(nodes=nodes, edges=edges, generation_id=gen)
 
         return self._cached(("blast_radius", node_id, max_depth), _compute)
@@ -794,6 +814,14 @@ class QueryEngine:
                 eval_res = self.eval_expression(f"config.{option_path}")
                 value = eval_res.value_json
                 value_status = eval_res.status.value
+                # BUG-004 D3: surface the underlying eval failure instead
+                # of a bare "error"/"unresolved" status.
+                if eval_res.error:
+                    first_line = eval_res.error.strip().splitlines()
+                    detail = (first_line[0] if first_line else "").strip()[:300]
+                    value_status = (
+                        f"{value_status}: {detail}" if detail else value_status
+                    )
 
             return OptionInfo(
                 option_path=option_path,

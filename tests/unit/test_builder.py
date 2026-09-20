@@ -36,26 +36,42 @@ def _mod(path: str) -> RawNode:
 
 
 def _opt(attr: str) -> RawNode:
-    return RawNode(id=f"nix_option:{attr}", type=NodeType.nix_option, name=attr, lang="nix")
+    return RawNode(
+        id=f"nix_option:{attr}", type=NodeType.nix_option, name=attr, lang="nix"
+    )
 
 
 def _imports(src: str, dst: str, **meta) -> RawEdge:
-    return RawEdge(source=f"nix:{src}", target=f"nix:{dst}", type=EdgeType.imports, metadata=dict(meta))
+    return RawEdge(
+        source=f"nix:{src}",
+        target=f"nix:{dst}",
+        type=EdgeType.imports,
+        metadata=dict(meta),
+    )
 
 
 def _sets(src: str, attr: str, **meta) -> RawEdge:
-    return RawEdge(source=f"nix:{src}", target=f"nix_option:{attr}", type=EdgeType.sets, metadata=dict(meta))
+    return RawEdge(
+        source=f"nix:{src}",
+        target=f"nix_option:{attr}",
+        type=EdgeType.sets,
+        metadata=dict(meta),
+    )
 
 
 def _declares(src: str, attr: str) -> RawEdge:
-    return RawEdge(source=f"nix:{src}", target=f"nix_option:{attr}", type=EdgeType.declares)
+    return RawEdge(
+        source=f"nix:{src}", target=f"nix_option:{attr}", type=EdgeType.declares
+    )
 
 
 # ------------------------------------------------------------------ basic
 
 
 class TestBuildFile:
-    def test_creates_nodes_and_edges(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_creates_nodes_and_edges(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         pr = ParseResult(
             nodes=[_mod("a.nix")],
             edges=[_imports("a.nix", "b.nix")],
@@ -81,14 +97,32 @@ class TestBuildFile:
         )
         builder.build_file("a.nix", pr)
         assert db.get_node("nix_option:services.foo.enable") is not None
-        assert db.get_node("nix_option:services.foo.enable").metadata.get("synthetic") is True
+        assert (
+            db.get_node("nix_option:services.foo.enable").metadata.get("synthetic")
+            is True
+        )
 
-    def test_placeholder_for_package_and_file(self, builder: GraphBuilder, db: Database) -> None:
+    def test_placeholder_for_package_and_file(
+        self, builder: GraphBuilder, db: Database
+    ) -> None:
         pr = ParseResult(
-            nodes=[_mod("a.nix"), RawNode(id="package:ripgrep", type=NodeType.package_ref, name="ripgrep")],
+            nodes=[
+                _mod("a.nix"),
+                RawNode(
+                    id="package:ripgrep", type=NodeType.package_ref, name="ripgrep"
+                ),
+            ],
             edges=[
-                RawEdge(source="nix:a.nix", target="package:ripgrep", type=EdgeType.uses_package),
-                RawEdge(source="nix:a.nix", target="file:.config/foo", type=EdgeType.configures),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="package:ripgrep",
+                    type=EdgeType.uses_package,
+                ),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="file:.config/foo",
+                    type=EdgeType.configures,
+                ),
             ],
         )
         builder.build_file("a.nix", pr)
@@ -96,7 +130,9 @@ class TestBuildFile:
         assert db.get_node("package:ripgrep") is not None
         assert db.get_node("file:.config/foo") is not None
 
-    def test_replaces_old_subgraph(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_replaces_old_subgraph(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         # First build: a imports b and c
         pr1 = ParseResult(
             nodes=[_mod("a.nix")],
@@ -118,9 +154,14 @@ class TestBuildFile:
         # Generation incremented twice
         assert db.get_generation_id() == 2
 
-    def test_placeholder_replaced_by_real(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_placeholder_replaced_by_real(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         # a imports b -> placeholder b
-        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]))
+        builder.build_file(
+            "a.nix",
+            ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]),
+        )
         ph = db.get_node("nix:b.nix")
         assert ph is not None
         assert ph.metadata.get("synthetic") is True
@@ -137,24 +178,39 @@ class TestBuildFile:
         assert graph.has_node("nix:b.nix")
         assert graph.number_of_edges() == 1
 
-    def test_incoming_edge_preserved_after_target_rebuild(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_incoming_edge_preserved_after_target_rebuild(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         # Build b first
         builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix")], edges=[]))
         # Build a that imports b
-        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]))
+        builder.build_file(
+            "a.nix",
+            ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]),
+        )
         assert db.count_edges() == 1
 
         # Rebuild b with new content (declares option)
-        builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix"), _opt("x")], edges=[_declares("b.nix", "x")]))
+        builder.build_file(
+            "b.nix",
+            ParseResult(
+                nodes=[_mod("b.nix"), _opt("x")], edges=[_declares("b.nix", "x")]
+            ),
+        )
         # Incoming edge a->b must survive
-        assert db.get_edge("nix:a.nix->imports->nix:b.nix") is not None or db.count_edges() == 2
+        assert (
+            db.get_edge("nix:a.nix->imports->nix:b.nix") is not None
+            or db.count_edges() == 2
+        )
         # Check that a->b edge still exists
         edges = db.get_all_edges()
         assert any(e.source == "nix:a.nix" and e.target == "nix:b.nix" for e in edges)
         assert graph.has_node("nix:a.nix")
         assert graph.has_node("nix:b.nix")
 
-    def test_incoming_edge_survives_rebuild_with_outgoing_edges(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_incoming_edge_survives_rebuild_with_outgoing_edges(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         # Regression: rebuilding a file that HAS outgoing edges must not
         # cascade-drop incoming import edges from other files.
         pr_b = ParseResult(
@@ -162,7 +218,10 @@ class TestBuildFile:
             edges=[_declares("b.nix", "b.opt")],
         )
         builder.build_file("b.nix", pr_b)
-        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]))
+        builder.build_file(
+            "a.nix",
+            ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]),
+        )
         assert db.count_edges() == 2
 
         # Rebuild b: b keeps its outgoing edge, module node id is unchanged.
@@ -172,16 +231,33 @@ class TestBuildFile:
         )
         builder.build_file("b.nix", pr_b2)
 
-        assert any(e.source == "nix:a.nix" and e.target == "nix:b.nix" for e in db.get_all_edges())
+        assert any(
+            e.source == "nix:a.nix" and e.target == "nix:b.nix"
+            for e in db.get_all_edges()
+        )
         assert graph.has_node("nix:b.nix")
         assert graph.number_of_edges() == 2
 
-    def test_lost_option_node_is_dropped_with_incoming_edges(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_lost_option_node_is_dropped_with_incoming_edges(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         # b declares option x initially; a also sets it. After b drops the
         # declaration, the option node must be purged together with the
         # now-dangling incoming edge (a->x).
-        builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix"), _opt("service.x")], edges=[_declares("b.nix", "service.x")]))
-        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix"), _sets("a.nix", "service.x")]))
+        builder.build_file(
+            "b.nix",
+            ParseResult(
+                nodes=[_mod("b.nix"), _opt("service.x")],
+                edges=[_declares("b.nix", "service.x")],
+            ),
+        )
+        builder.build_file(
+            "a.nix",
+            ParseResult(
+                nodes=[_mod("a.nix")],
+                edges=[_imports("a.nix", "b.nix"), _sets("a.nix", "service.x")],
+            ),
+        )
 
         assert db.get_node("nix_option:service.x") is not None
 
@@ -208,7 +284,9 @@ class TestBuildFile:
         assert db.count_nodes() == 2  # a + placeholder b
         assert db.count_edges() == 1
 
-    def test_conditional_metadata_affects_edge_id(self, builder: GraphBuilder, db: Database) -> None:
+    def test_conditional_metadata_affects_edge_id(
+        self, builder: GraphBuilder, db: Database
+    ) -> None:
         # Two edges same source->target but different conditional should be distinct
         pr = ParseResult(
             nodes=[_mod("a.nix")],
@@ -223,10 +301,18 @@ class TestBuildFile:
 
 
 class TestBuildAll:
-    def test_bulk_build(self, builder: GraphBuilder, db: Database, graph: NxGraph) -> None:
+    def test_bulk_build(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
         items = [
-            (Path("a.nix"), ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")])),
-            (Path("b.nix"), ParseResult(nodes=[_mod("b.nix")], edges=[_imports("b.nix", "c.nix")])),
+            (
+                Path("a.nix"),
+                ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]),
+            ),
+            (
+                Path("b.nix"),
+                ParseResult(nodes=[_mod("b.nix")], edges=[_imports("b.nix", "c.nix")]),
+            ),
         ]
         builder.build_all(items)
         assert db.get_node("nix:a.nix") is not None
@@ -241,10 +327,22 @@ class TestBuildAll:
 
     def test_build_all_replaces(self, builder: GraphBuilder, db: Database) -> None:
         # Initial build
-        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]))
+        builder.build_file(
+            "a.nix",
+            ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "b.nix")]),
+        )
         assert db.count_edges() == 1
         # Bulk rebuild a with different edge
-        builder.build_all([(Path("a.nix"), ParseResult(nodes=[_mod("a.nix")], edges=[_imports("a.nix", "c.nix")]))])
+        builder.build_all(
+            [
+                (
+                    Path("a.nix"),
+                    ParseResult(
+                        nodes=[_mod("a.nix")], edges=[_imports("a.nix", "c.nix")]
+                    ),
+                )
+            ]
+        )
         edges = db.get_all_edges()
         assert any(e.target == "nix:c.nix" for e in edges)
         assert not any(e.target == "nix:b.nix" for e in edges)
@@ -253,3 +351,111 @@ class TestBuildAll:
         builder.build_all([])
         assert db.get_generation_id() == 1
         assert db.count_nodes() == 0
+
+
+class TestPruneOrphanSynthetics:
+    """BUG-004 D5: synthetic placeholders with no edges must not linger."""
+
+    def test_prune_direct(self, db: Database) -> None:
+        from repo_navigator.graph.builder import _raw_to_edge
+        from repo_navigator.models.nodes import Node
+
+        orphan = Node(
+            id="nix_option:programs.wezterm.enable",
+            type=NodeType.nix_option,
+            name="programs.wezterm.enable",
+            lang="nix",
+            metadata={"synthetic": True},
+        )
+        referenced = Node(
+            id="nix_option:services.foo.enable",
+            type=NodeType.nix_option,
+            name="services.foo.enable",
+            lang="nix",
+            metadata={"synthetic": True},
+        )
+        real_isolated = Node(
+            id="nix:isolated.nix",
+            type=NodeType.nix_module,
+            name="isolated.nix",
+            path="isolated.nix",
+            lang="nix",
+        )
+        pathed_synthetic = Node(
+            id="nix:ghost.nix",
+            type=NodeType.nix_module,
+            name="ghost.nix",
+            path="ghost.nix",
+            lang="nix",
+            metadata={"synthetic": True},
+        )
+        for n in (orphan, referenced, real_isolated, pathed_synthetic):
+            db.upsert_node(n)
+        db.upsert_edge(
+            _raw_to_edge(
+                RawEdge(
+                    source="nix:isolated.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.sets,
+                )
+            )
+        )
+        pruned = db.prune_orphan_synthetic_nodes()
+        assert pruned == ["nix_option:programs.wezterm.enable"]
+        assert db.get_node("nix_option:programs.wezterm.enable") is None
+        # Referenced placeholder, real isolated node and pathed
+        # placeholder all survive.
+        assert db.get_node("nix_option:services.foo.enable") is not None
+        assert db.get_node("nix:isolated.nix") is not None
+        assert db.get_node("nix:ghost.nix") is not None
+
+    def test_build_file_prunes_dropped_sets_target(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
+        # a sets an (undeclared) option -> synthetic placeholder exists.
+        builder.build_file(
+            "a.nix",
+            ParseResult(nodes=[_mod("a.nix")], edges=[_sets("a.nix", "w.nope")]),
+        )
+        assert db.get_node("nix_option:w.nope") is not None
+        # Rebuild a without the set: the placeholder loses its last edge
+        # and is GC'd from both DB and NxGraph.
+        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[]))
+        assert db.get_node("nix_option:w.nope") is None
+        assert not graph.has_node("nix_option:w.nope")
+
+    def test_shared_reference_keeps_placeholder_alive(
+        self, builder: GraphBuilder, db: Database
+    ) -> None:
+        builder.build_file(
+            "a.nix",
+            ParseResult(nodes=[_mod("a.nix")], edges=[_sets("a.nix", "shared.opt")]),
+        )
+        builder.build_file(
+            "b.nix",
+            ParseResult(nodes=[_mod("b.nix")], edges=[_sets("b.nix", "shared.opt")]),
+        )
+        builder.build_file("a.nix", ParseResult(nodes=[_mod("a.nix")], edges=[]))
+        # b still sets it: placeholder survives.
+        assert db.get_node("nix_option:shared.opt") is not None
+        assert any(e.target == "nix_option:shared.opt" for e in db.get_all_edges())
+
+    def test_build_all_prunes(
+        self, builder: GraphBuilder, db: Database, graph: NxGraph
+    ) -> None:
+        builder.build_all(
+            [
+                (
+                    Path("a.nix"),
+                    ParseResult(
+                        nodes=[_mod("a.nix")], edges=[_sets("a.nix", "gone.opt")]
+                    ),
+                )
+            ]
+        )
+        assert db.get_node("nix_option:gone.opt") is not None
+        builder.build_all(
+            [(Path("a.nix"), ParseResult(nodes=[_mod("a.nix")], edges=[]))]
+        )
+        assert db.get_node("nix_option:gone.opt") is None
+        assert not graph.has_node("nix_option:gone.opt")

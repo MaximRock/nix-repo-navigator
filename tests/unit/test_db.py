@@ -92,12 +92,8 @@ class TestNodes:
         c = make_module("modules/c.nix")
         for n in (a, b, c):
             db.upsert_node(n)
-        db.upsert_edge(
-            Edge(id="e1", source=a.id, target=b.id, type=EdgeType.imports)
-        )
-        db.upsert_edge(
-            Edge(id="e2", source=c.id, target=b.id, type=EdgeType.imports)
-        )
+        db.upsert_edge(Edge(id="e1", source=a.id, target=b.id, type=EdgeType.imports))
+        db.upsert_edge(Edge(id="e2", source=c.id, target=b.id, type=EdgeType.imports))
 
         db.delete_file_nodes(a.path)
 
@@ -135,8 +131,7 @@ class TestEdges:
     def test_edge_requires_existing_endpoints(self, db: Database) -> None:
         with pytest.raises(sqlite3.IntegrityError):
             db.upsert_edge(
-                Edge(id="x", source="ghost", target="also-ghost",
-                     type=EdgeType.imports)
+                Edge(id="x", source="ghost", target="also-ghost", type=EdgeType.imports)
             )
 
     def test_get_edges_for_node_both_directions(self, db: Database) -> None:
@@ -205,10 +200,14 @@ class TestAuxTables:
         db.upsert_flake_input("nixpkgs", "github:NixOS/nixpkgs", "rev1")
         db.upsert_flake_input("nixpkgs", "github:NixOS/nixpkgs", "rev2")
         inputs = db.get_flake_inputs()
-        assert inputs == [{"name": "nixpkgs", "url": "github:NixOS/nixpkgs", "rev": "rev2"}]
+        assert inputs == [
+            {"name": "nixpkgs", "url": "github:NixOS/nixpkgs", "rev": "rev2"}
+        ]
 
     def test_packages(self, db: Database) -> None:
-        db.upsert_package("ripgrep", "ripgrep", "14.1.0", "/nix/store/rg", {"license": "MIT"})
+        db.upsert_package(
+            "ripgrep", "ripgrep", "14.1.0", "/nix/store/rg", {"license": "MIT"}
+        )
         pkgs = db.get_packages()
         assert pkgs[0]["attribute"] == "ripgrep"
         assert pkgs[0]["meta"] == {"license": "MIT"}
@@ -308,6 +307,44 @@ class TestFts5:
     def test_search_garbage_query_is_safe(self, db: Database) -> None:
         assert db.search_fts5('"unbalanced') == []
         assert db.search_fts5("   ") == []
+
+    def test_search_multiword_is_and_not_phrase(self, db: Database) -> None:
+        # BUG-004 D2: "wezterm theme" must match nodes containing both
+        # tokens anywhere (AND), not only the literal phrase.
+        db.upsert_node(
+            Node(
+                id="n1",
+                type=NodeType.nix_option,
+                name="programs.wezterm.extraConfig theme-loader",
+            )
+        )
+        hits = db.search_fts5("wezterm theme")
+        assert [n.id for n in hits] == ["n1"]
+
+    def test_search_and_empty_falls_back_to_or(self, db: Database) -> None:
+        # No node has both tokens, but each token matches one node:
+        # strict AND is empty, OR fallback still offers partial matches.
+        db.upsert_node(
+            Node(id="n1", type=NodeType.nix_option, name="programs.wezterm.enable")
+        )
+        db.upsert_node(
+            Node(id="n2", type=NodeType.nix_option, name="stylix.theme.variant")
+        )
+        # Strict AND matches nothing, but the OR fallback offers both.
+        hits = db.search_fts5("wezterm stylix")
+        assert {n.id for n in hits} == {"n1", "n2"}
+
+    def test_search_single_token_unchanged(self, db: Database) -> None:
+        db.upsert_node(
+            Node(
+                id="nix_option:services.nginx.enable",
+                type=NodeType.nix_option,
+                name="services.nginx.enable",
+            )
+        )
+        assert [n.id for n in db.search_fts5("nginx")] == [
+            "nix_option:services.nginx.enable"
+        ]
 
 
 # -------------------------------------------------------------- persistence

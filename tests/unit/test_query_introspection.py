@@ -32,9 +32,24 @@ def _setup_option_graph() -> tuple[Database, NxGraph, QueryEngine]:
         ParseResult(
             nodes=[
                 _mod("b.nix"),
-                RawNode(id="nix_option:services.foo.enable", type=NodeType.nix_option, name="services.foo.enable", metadata={"opt_type": "bool", "default": "false", "description": "foo"}),
+                RawNode(
+                    id="nix_option:services.foo.enable",
+                    type=NodeType.nix_option,
+                    name="services.foo.enable",
+                    metadata={
+                        "opt_type": "bool",
+                        "default": "false",
+                        "description": "foo",
+                    },
+                ),
             ],
-            edges=[RawEdge(source="nix:b.nix", target="nix_option:services.foo.enable", type=EdgeType.declares)],
+            edges=[
+                RawEdge(
+                    source="nix:b.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.declares,
+                )
+            ],
         ),
     )
     builder.build_file(
@@ -42,8 +57,18 @@ def _setup_option_graph() -> tuple[Database, NxGraph, QueryEngine]:
         ParseResult(
             nodes=[_mod("a.nix")],
             edges=[
-                RawEdge(source="nix:a.nix", target="nix_option:services.foo.enable", type=EdgeType.sets, metadata={"conditional": False}),
-                RawEdge(source="nix:a.nix", target="nix_option:services.foo.enable", type=EdgeType.sets, metadata={"conditional": True}),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.sets,
+                    metadata={"conditional": False},
+                ),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="nix_option:services.foo.enable",
+                    type=EdgeType.sets,
+                    metadata={"conditional": True},
+                ),
             ],
         ),
     )
@@ -75,8 +100,9 @@ class TestIntrospectOption:
     def test_include_value_with_mock(self) -> None:
         _, _, engine = _setup_option_graph()
         # Mock eval to return 42
-        with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
-            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
+        with (
+            patch("repo_navigator.nix.eval.subprocess.run") as mock_run,
+            patch("repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"),
         ):
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = json.dumps(42)
@@ -85,6 +111,44 @@ class TestIntrospectOption:
             assert info.value == 42
             assert info.value_status == "ok"
 
+    def test_plain_attrset_set_visible_in_defined_in(self) -> None:
+        # BUG-004 D3 end-to-end: `modules.home = { comfyui.enable = … }`
+        # (no `config` block) is parsed into a sets edge, so
+        # introspect_option reports the defining file.
+        from repo_navigator.parsers.nix.ast_extract import extract_source
+        from repo_navigator.parsers.nix.module_parser import parse_module
+
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        builder = GraphBuilder(db, g)
+        extracted = extract_source(
+            "{ config, ... }: { modules.home = { comfyui.enable = false; }; }"
+        )
+        builder.build_file(
+            "home/common/ai-agents.nix",
+            parse_module("home/common/ai-agents.nix", extracted),
+        )
+        engine = QueryEngine(db, g)
+        info = engine.introspect_option("modules.home.comfyui.enable")
+        assert info.defined_in == ["home/common/ai-agents.nix"]
+
+    def test_include_value_surfaces_eval_error(self) -> None:
+        # BUG-004 D3: eval failure carries the underlying error text
+        # instead of a bare "error".
+        _, _, engine = _setup_option_graph()
+        with (
+            patch("repo_navigator.nix.eval.subprocess.run") as mock_run,
+            patch("repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"),
+        ):
+            mock_run.return_value.returncode = 1
+            mock_run.return_value.stdout = ""
+            mock_run.return_value.stderr = "error: infinite recursion"
+            info = engine.introspect_option("services.foo.enable", include_value=True)
+            assert info.value is None
+            assert info.value_status is not None
+            assert "infinite recursion" in info.value_status
+
 
 class TestEvalExpression:
     def test_eval_caches(self) -> None:
@@ -92,8 +156,9 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
-            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
+        with (
+            patch("repo_navigator.nix.eval.subprocess.run") as mock_run,
+            patch("repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"),
         ):
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = json.dumps({"a": 1})
@@ -124,8 +189,9 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.nix.eval.subprocess.run") as mock_run, patch(
-            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
+        with (
+            patch("repo_navigator.nix.eval.subprocess.run") as mock_run,
+            patch("repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"),
         ):
             mock_run.return_value.returncode = 1
             mock_run.return_value.stdout = ""
@@ -139,8 +205,14 @@ class TestEvalExpression:
         db.init_db()
         g = NxGraph()
         engine = QueryEngine(db, g)
-        with patch("repo_navigator.nix.eval.subprocess.run", side_effect=__import__("subprocess").TimeoutExpired(cmd="nix", timeout=1)), patch(
-            "repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"
+        with (
+            patch(
+                "repo_navigator.nix.eval.subprocess.run",
+                side_effect=__import__("subprocess").TimeoutExpired(
+                    cmd="nix", timeout=1
+                ),
+            ),
+            patch("repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"),
         ):
             res = engine.eval_expression("1+1", timeout=1)
             assert res.status.value == "error"

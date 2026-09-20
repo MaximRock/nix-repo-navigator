@@ -241,7 +241,9 @@ def _is_interpolation(expr: Expr) -> bool:
     if isinstance(expr, Interpolation):
         return True
     if isinstance(expr, AttrSet):
-        return any(_is_interpolation(a.value) for a in expr.attrs if a.value is not None)
+        return any(
+            _is_interpolation(a.value) for a in expr.attrs if a.value is not None
+        )
     if isinstance(expr, List):
         return any(_is_interpolation(i) for i in expr.items)
     return False
@@ -294,11 +296,7 @@ def _detect_mkif_blocks(expr: Expr) -> list[Expr] | None:
         if short == "mkMerge" and args:
             arg = args[0]
             if isinstance(arg, List):
-                return [
-                    item
-                    for item in arg.items
-                    if isinstance(item, AttrSet)
-                ]
+                return [item for item in arg.items if isinstance(item, AttrSet)]
     return None
 
 
@@ -364,6 +362,7 @@ def _process(
     result: ExtractedNix,
     conditional: bool = False,
     let_env: dict[str, Expr] | None = None,
+    _prefix: tuple[str, ...] = (),
 ) -> None:
     for attr in attrs:
         if isinstance(attr.name, Inherit):
@@ -397,35 +396,86 @@ def _process(
             continue
 
         if name == "home":
-            _process_home(value, result, conditional, let_env)
+            _process_home(value, result, conditional, let_env, _prefix)
             continue
 
         if name == "xdg":
-            _process_xdg(value, result, conditional)
+            _process_xdg(value, result, conditional, _prefix)
             continue
 
         if name == "programs":
-            _process_programs(value, result, conditional, let_env)
+            _process_programs(value, result, conditional, let_env, _prefix)
             continue
 
-        mkif_blocks = _detect_mkif_blocks(value)
-        if mkif_blocks:
-            for block in mkif_blocks:
-                if isinstance(block, AttrSet):
-                    _process(block.attrs, result, conditional=True, let_env=let_env)
-            continue
+        _emit_generic_attr(name, value, result, conditional, _prefix, let_env)
 
-        if isinstance(value, AttrSet):
-            _process(value.attrs, result, conditional, let_env)
-            continue
 
-        if isinstance(value, Function):
-            result.functions.append(
-                FunctionDecl(
-                    name=name,
-                    args=_formal_names(value.arg),
+def _emit_generic_attr(
+    name: str,
+    value: Expr,
+    result: ExtractedNix,
+    conditional: bool,
+    prefix: tuple[str, ...] = (),
+    let_env: dict[str, Expr] | None = None,
+) -> None:
+    """Record a plain assignment under an unhandled attrpath as an option set.
+
+    Covers dotted assignments outside ``config`` blocks (BUG-004 D3), e.g.
+    ``modules.home.comfyui.enable = false`` in a bare
+    ``modules.home = { … }`` attrset, as well as unknown leaves inside the
+    ``home``/``programs``/``xdg`` handlers (which only extract their known
+    fields and would otherwise drop e.g. ``home.stateVersion`` or
+    ``programs.git.userName``). Handled names never reach this helper —
+    ``_process`` dispatches them first.
+    """
+    mkif_blocks = _detect_mkif_blocks(value)
+    if mkif_blocks:
+        for block in mkif_blocks:
+            if isinstance(block, AttrSet):
+                _process(
+                    block.attrs,
+                    result,
+                    conditional=True,
+                    let_env=let_env,
+                    _prefix=prefix + (name,),
                 )
+        # Mirror the config walker: record the mkIf-wrapped assignment
+        # itself as a conditional set.
+        priority, inner = _detect_priority(value)
+        result.configs.append(
+            ConfigSet(
+                attrpath=".".join([*prefix, name]),
+                value_expr=ast_to_dict(inner),
+                conditional=True,
+                priority=priority,
+                line=getattr(value, "line", 0) or 0,
             )
+        )
+        return
+
+    if isinstance(value, AttrSet):
+        _process(value.attrs, result, conditional, let_env, prefix + (name,))
+        return
+
+    if isinstance(value, Function):
+        result.functions.append(
+            FunctionDecl(
+                name=name,
+                args=_formal_names(value.arg),
+            )
+        )
+        return
+
+    priority, inner = _detect_priority(value)
+    result.configs.append(
+        ConfigSet(
+            attrpath=".".join([*prefix, name]),
+            value_expr=ast_to_dict(inner),
+            conditional=conditional,
+            priority=priority,
+            line=getattr(value, "line", 0) or 0,
+        )
+    )
 
 
 def _collect_bare_imports(expr: Expr, result: ExtractedNix) -> None:
@@ -629,16 +679,12 @@ def _process_imports(
                 )
 
 
-def _process_options(
-    value: Expr, result: ExtractedNix, conditional: bool
-) -> None:
+def _process_options(value: Expr, result: ExtractedNix, conditional: bool) -> None:
     if not isinstance(value, AttrSet):
         return
 
     for opt_attr in value.attrs:
-        if isinstance(opt_attr.name, Inherit) or not isinstance(
-            opt_attr.name, str
-        ):
+        if isinstance(opt_attr.name, Inherit) or not isinstance(opt_attr.name, str):
             continue
         attr_value = opt_attr.value
         if attr_value is None:
@@ -674,7 +720,9 @@ def _process_options(
                     )
                 )
             elif short == "mkEnableOption" and func_args:
-                desc = str(func_args[0].value) if hasattr(func_args[0], "value") else None
+                desc = (
+                    str(func_args[0].value) if hasattr(func_args[0], "value") else None
+                )
                 result.options.append(
                     OptionDecl(
                         attrpath=opt_attr.name,
@@ -726,7 +774,9 @@ def _walk_options_recursive(
                 )
                 continue
             elif short == "mkEnableOption" and func_args:
-                desc = str(func_args[0].value) if hasattr(func_args[0], "value") else None
+                desc = (
+                    str(func_args[0].value) if hasattr(func_args[0], "value") else None
+                )
                 result.options.append(
                     OptionDecl(
                         attrpath=".".join(prefix + [name]),
@@ -738,9 +788,7 @@ def _walk_options_recursive(
                 continue
 
         if isinstance(value, AttrSet):
-            _walk_options_recursive(
-                value.attrs, prefix + [name], result, conditional
-            )
+            _walk_options_recursive(value.attrs, prefix + [name], result, conditional)
 
 
 def _process_config(
@@ -847,9 +895,7 @@ def _walk_config_recursive(
             continue
 
         if isinstance(value, AttrSet):
-            _walk_config_recursive(
-                value.attrs, prefix + [name], result, conditional
-            )
+            _walk_config_recursive(value.attrs, prefix + [name], result, conditional)
             continue
 
         priority, inner = _detect_priority(value)
@@ -894,23 +940,31 @@ def _process_home(
     result: ExtractedNix,
     conditional: bool,
     let_env: dict[str, Expr] | None = None,
+    _prefix: tuple[str, ...] = (),
 ) -> None:
     if not isinstance(value, AttrSet):
+        # e.g. `home = mkIf cond { … }` — record generically.
+        _emit_generic_attr("home", value, result, conditional, _prefix, let_env)
         return
+    base = (*_prefix, "home")
     for attr in value.attrs:
         if isinstance(attr.name, Inherit) or not isinstance(attr.name, str):
             continue
         if attr.name == "file" and isinstance(attr.value, AttrSet):
             _process_home_file(attr.value, result)
-        elif attr.name == "packages":
+        elif attr.name == "packages" and isinstance(attr.value, List):
             _process_home_packages(attr.value, result, let_env)
         elif attr.name == "sessionVariables" and isinstance(attr.value, AttrSet):
             for var_attr in attr.value.attrs:
                 if isinstance(var_attr.name, str):
                     result.configs.append(
                         ConfigSet(
-                            attrpath=f"home.sessionVariables.{var_attr.name}",
-                            value_expr=ast_to_dict(var_attr.value) if var_attr.value else None,
+                            attrpath=".".join(
+                                [*base, "sessionVariables", var_attr.name]
+                            ),
+                            value_expr=ast_to_dict(var_attr.value)
+                            if var_attr.value
+                            else None,
                             conditional=conditional,
                         )
                     )
@@ -919,11 +973,20 @@ def _process_home(
                 if isinstance(act_attr.name, str):
                     result.configs.append(
                         ConfigSet(
-                            attrpath=f"home.activation.{act_attr.name}",
-                            value_expr=ast_to_dict(act_attr.value) if act_attr.value else None,
+                            attrpath=".".join([*base, "activation", act_attr.name]),
+                            value_expr=ast_to_dict(act_attr.value)
+                            if act_attr.value
+                            else None,
                             conditional=conditional,
                         )
                     )
+        else:
+            # BUG-004 D3: unknown home.* leaves (home.stateVersion,
+            # modules.home.comfyui.*, …) are option sets too.
+            if attr.value is not None:
+                _emit_generic_attr(
+                    attr.name, attr.value, result, conditional, base, let_env
+                )
 
 
 def _process_home_file(attrs: AttrSet, result: ExtractedNix) -> None:
@@ -1077,15 +1140,23 @@ def _process_home_packages(
 
 
 def _process_xdg(
-    value: Expr, result: ExtractedNix, conditional: bool
+    value: Expr,
+    result: ExtractedNix,
+    conditional: bool,
+    _prefix: tuple[str, ...] = (),
 ) -> None:
     if not isinstance(value, AttrSet):
+        _emit_generic_attr("xdg", value, result, conditional, _prefix)
         return
+    base = (*_prefix, "xdg")
     for attr in value.attrs:
         if isinstance(attr.name, Inherit) or not isinstance(attr.name, str):
             continue
         if attr.name in ("configFile", "dataFile") and isinstance(attr.value, AttrSet):
             _process_home_file(attr.value, result)
+        elif attr.value is not None:
+            # BUG-004 D3: unknown xdg.* leaves are option sets too.
+            _emit_generic_attr(attr.name, attr.value, result, conditional, base)
 
 
 def _process_programs(
@@ -1093,31 +1164,46 @@ def _process_programs(
     result: ExtractedNix,
     conditional: bool,
     let_env: dict[str, Expr] | None = None,
+    _prefix: tuple[str, ...] = (),
 ) -> None:
     if not isinstance(value, AttrSet):
+        _emit_generic_attr("programs", value, result, conditional, _prefix, let_env)
         return
     env = let_env or {}
+    base = (*_prefix, "programs")
     for prog_attr in value.attrs:
-        if isinstance(prog_attr.name, Inherit) or not isinstance(
-            prog_attr.name, str
-        ):
+        if isinstance(prog_attr.name, Inherit) or not isinstance(prog_attr.name, str):
             continue
+        prog_base = (*base, prog_attr.name)
         if not isinstance(prog_attr.value, AttrSet):
             # Programs may be enabled via boolean: programs.git.enable = true;
             # In that case prog_attr.value is Literal (bool) - treat as enable
             if isinstance(prog_attr.value, Literal):
                 result.configs.append(
                     ConfigSet(
-                        attrpath=f"programs.{prog_attr.name}.enable",
+                        attrpath=".".join([*prog_base, "enable"]),
                         value_expr=ast_to_dict(prog_attr.value),
                         conditional=conditional,
                     )
+                )
+            elif prog_attr.value is not None:
+                # e.g. `programs.git = mkIf cond { … }` — record generically.
+                _emit_generic_attr(
+                    prog_attr.name,
+                    prog_attr.value,
+                    result,
+                    conditional,
+                    base,
+                    let_env,
                 )
             continue
         for field_attr in prog_attr.value.attrs:
             if isinstance(field_attr.name, str) and field_attr.name == "package":
                 attr_path = f"{prog_attr.name}.package"
-                if isinstance(field_attr.value, Select) and field_attr.value.base is None:
+                if (
+                    isinstance(field_attr.value, Select)
+                    and field_attr.value.base is None
+                ):
                     result.packages.append(
                         PackageRef(
                             attribute=".".join(field_attr.value.path)
@@ -1131,20 +1217,36 @@ def _process_programs(
                     result.packages.append(
                         PackageRef(attribute=str(field_attr.value.value))
                     )
-            elif isinstance(field_attr.name, str) and field_attr.name in ("enable", "enableCompletion"):
+            elif isinstance(field_attr.name, str) and field_attr.name in (
+                "enable",
+                "enableCompletion",
+            ):
                 result.configs.append(
                     ConfigSet(
-                        attrpath=f"programs.{prog_attr.name}.{field_attr.name}",
-                        value_expr=ast_to_dict(field_attr.value) if field_attr.value else None,
+                        attrpath=".".join([*prog_base, field_attr.name]),
+                        value_expr=ast_to_dict(field_attr.value)
+                        if field_attr.value
+                        else None,
                         conditional=conditional,
                     )
                 )
             elif isinstance(field_attr.name, str) and field_attr.name == "extraConfig":
                 result.home_files.append(
                     HomeFile(
-                        target=f"programs.{prog_attr.name}",
+                        target=".".join(prog_base),
                         source=_literal_value(field_attr.value)
                         if field_attr.value
                         else None,
                     )
+                )
+            elif isinstance(field_attr.name, str) and field_attr.value is not None:
+                # BUG-004 D3: other programs.* settings (userName,
+                # settings.*, …) are option sets too.
+                _emit_generic_attr(
+                    field_attr.name,
+                    field_attr.value,
+                    result,
+                    conditional,
+                    prog_base,
+                    let_env,
                 )

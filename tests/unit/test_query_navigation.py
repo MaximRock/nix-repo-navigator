@@ -239,16 +239,58 @@ class TestBlastRadius:
     def test_blast_no_duplicate_edges(self) -> None:
         # BUG 2: the first edge-scan never registered edge ids, so the
         # per-node scan re-appended the same edges -> duplicates.
+        # BUG-004 D4: only edges on paths to the target are kept — the
+        # declares edge b->option and the sets edge c->option leave the
+        # blast (their targets cannot reach c).
         _, _, engine = _setup_chain()
         sub = engine.blast_radius("nix:c.nix", max_depth=5)
         edge_ids = [e.id for e in sub.edges]
         assert len(edge_ids) == len(set(edge_ids))
-        # Intended blast subgraph edges: chain a->b->c plus the declares
-        # edge leaving b (second scan reaches non-blast targets too).
         assert set(edge_ids) == {
             "nix:a.nix->imports->nix:b.nix",
             "nix:b.nix->imports->nix:c.nix",
-            "nix:b.nix->declares->nix_option:services.foo.enable",
+        }
+
+    def test_blast_excludes_sibling_imports(self) -> None:
+        # BUG-004 D4: sibling imports of visited modules (m1->sib,
+        # m2->sib2) are not on any path to the target and must be out.
+        from repo_navigator.graph.db import Database
+        from repo_navigator.graph.nx_graph import NxGraph
+        from repo_navigator.graph.builder import GraphBuilder
+
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        builder = GraphBuilder(db, g)
+        builder.build_file(
+            "m2.nix",
+            ParseResult(
+                nodes=[_mod("m2.nix")],
+                edges=[
+                    _imports("m2.nix", "m1.nix"),
+                    _imports("m2.nix", "sib2.nix"),
+                ],
+            ),
+        )
+        builder.build_file(
+            "m1.nix",
+            ParseResult(
+                nodes=[_mod("m1.nix")],
+                edges=[
+                    _imports("m1.nix", "t.nix"),
+                    _imports("m1.nix", "sib.nix"),
+                ],
+            ),
+        )
+        builder.build_file("t.nix", ParseResult(nodes=[_mod("t.nix")], edges=[]))
+        builder.build_file("sib.nix", ParseResult(nodes=[_mod("sib.nix")], edges=[]))
+        builder.build_file("sib2.nix", ParseResult(nodes=[_mod("sib2.nix")], edges=[]))
+        engine = QueryEngine(db, g)
+        sub = engine.blast_radius("nix:t.nix", max_depth=5)
+        assert {n.id for n in sub.nodes} == {"nix:m1.nix", "nix:m2.nix"}
+        assert {e.id for e in sub.edges} == {
+            "nix:m1.nix->imports->nix:t.nix",
+            "nix:m2.nix->imports->nix:m1.nix",
         }
 
     def test_blast_depth_limit(self) -> None:
@@ -340,6 +382,23 @@ class TestFindSymbol:
         )
         assert all(r.id.startswith("nix_option:") for r in results)
 
+    def test_find_multiword_is_and_not_phrase(self) -> None:
+        # BUG-004 D2: two-word query matches nodes with both tokens
+        # anywhere, not only the literal phrase.
+        db, g, engine = _setup_chain()
+        from repo_navigator.models.nodes import Node
+
+        n = Node(
+            id="nix_option:programs.wezterm.theme",
+            type=NodeType.nix_option,
+            name="programs.wezterm.extraConfig theme-loader",
+            lang="nix",
+        )
+        db.upsert_node(n)
+        g.apply_delta(added_nodes=[n])
+        results = engine.find_symbol("wezterm theme", fuzzy=False)
+        assert any(r.id == n.id for r in results)
+
     def test_find_offset_pagination(self) -> None:
         _, _, engine = _setup_chain()
         all_results = engine.find_symbol("nix", fuzzy=True, limit=100)
@@ -403,7 +462,14 @@ class TestDependenciesClosure:
         _, _, engine = _setup_chain()
         report = engine.dependencies("nix:a.nix", max_depth=3)
         ids = {e.node.id for e in report.depends_on}
-        assert ids == {"nix:b.nix", "nix:c.nix", "nix:d.nix"}
+        # BUG-004 D1: the closure follows sets too, so the option set by c
+        # (depth 3 via a->b->c->sets) is part of the forward chain.
+        assert ids == {
+            "nix:b.nix",
+            "nix:c.nix",
+            "nix:d.nix",
+            "nix_option:services.foo.enable",
+        }
         by_id = {e.node.id: e for e in report.depends_on}
         assert by_id["nix:b.nix"].depth == 1
         assert by_id["nix:c.nix"].depth == 2
@@ -430,11 +496,89 @@ class TestDependenciesClosure:
             engine.dependents("nix:a.nix", max_depth=11)
 
     def test_closure_excludes_nondependency_edges(self) -> None:
-        _, _, engine = _setup_chain()
-        # declares edge b->option must not appear in the closure
-        report = engine.dependencies("nix:b.nix", max_depth=3)
-        ids = {e.node.id for e in report.depends_on}
-        assert all("services.foo" not in i for i in ids)
+        # BUG-004 D1: declares is structural, not a dependency — a module
+        # that only declares an option does not "depend on" it. (The same
+        # option set via a sets edge IS reachable, covered above.)
+        from repo_navigator.graph.db import Database
+        from repo_navigator.graph.nx_graph import NxGraph
+        from repo_navigator.graph.builder import GraphBuilder
+
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        GraphBuilder(db, g).build_file(
+            "decl.nix",
+            ParseResult(
+                nodes=[
+                    _mod("decl.nix"),
+                    RawNode(
+                        id="nix_option:services.bar.enable",
+                        type=NodeType.nix_option,
+                        name="services.bar.enable",
+                    ),
+                ],
+                edges=[
+                    RawEdge(
+                        source="nix:decl.nix",
+                        target="nix_option:services.bar.enable",
+                        type=EdgeType.declares,
+                    ),
+                ],
+            ),
+        )
+        engine = QueryEngine(db, g)
+        report = engine.dependencies("nix:decl.nix", max_depth=3)
+        assert {e.node.id for e in report.depends_on} == set()
+
+    def test_closure_includes_forward_edges(self) -> None:
+        # BUG-004 D1: references/uses_package/sets/configures participate
+        # in the forward closure (the comfyui case: flake input + package).
+        from repo_navigator.graph.db import Database
+        from repo_navigator.graph.nx_graph import NxGraph
+        from repo_navigator.graph.builder import GraphBuilder
+
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        GraphBuilder(db, g).build_file(
+            "m.nix",
+            ParseResult(
+                nodes=[_mod("m.nix")],
+                edges=[
+                    RawEdge(
+                        source="nix:m.nix",
+                        target="flake_input:comfyui-nix",
+                        type=EdgeType.references,
+                    ),
+                    RawEdge(
+                        source="nix:m.nix",
+                        target="package:foo",
+                        type=EdgeType.uses_package,
+                    ),
+                    RawEdge(
+                        source="nix:m.nix",
+                        target="nix_option:services.foo.enable",
+                        type=EdgeType.sets,
+                    ),
+                    RawEdge(
+                        source="nix:m.nix",
+                        target="file:.config/foo",
+                        type=EdgeType.configures,
+                    ),
+                ],
+            ),
+        )
+        engine = QueryEngine(db, g)
+        report = engine.dependencies("nix:m.nix", max_depth=1)
+        assert {e.node.id for e in report.depends_on} == {
+            "flake_input:comfyui-nix",
+            "package:foo",
+            "nix_option:services.foo.enable",
+            "file:.config/foo",
+        }
+        # Reverse mirror: the set option reports the module as dependent.
+        rev = engine.dependents("nix_option:services.foo.enable", max_depth=1)
+        assert {e.node.id for e in rev.dependents} == {"nix:m.nix"}
 
 
 class TestBenefitReport:

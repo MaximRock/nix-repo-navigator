@@ -232,6 +232,10 @@ class UpdateEngine:
                 removed_node_ids=list(old_node_ids),
                 removed_edge_ids=list(old_edge_ids),
             )
+            # Drop synthetic placeholders orphaned by the deletion (BUG-004 D5).
+            pruned = self.db.prune_orphan_synthetic_nodes()
+            if pruned:
+                self.nx_graph.apply_delta(removed_node_ids=pruned)
             self.db.inc_generation_id()
 
         # Remove file_state

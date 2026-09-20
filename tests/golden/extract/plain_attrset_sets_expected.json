@@ -4,19 +4,19 @@
       "metadata": {
         "conditional": false
       },
-      "source": "nix:unresolved_interp.nix",
-      "target": "nix_option:x",
+      "source": "nix:plain_attrset_sets.nix",
+      "target": "nix_option:modules.home.comfyui.enable",
       "type": "sets",
       "weight": 1.0
     }
   ],
   "nodes": [
     {
-      "id": "nix:unresolved_interp.nix",
+      "id": "nix:plain_attrset_sets.nix",
       "lang": "nix",
       "metadata": {},
-      "name": "unresolved_interp.nix",
-      "path": "unresolved_interp.nix",
+      "name": "plain_attrset_sets.nix",
+      "path": "plain_attrset_sets.nix",
       "type": "nix_module"
     }
   ]

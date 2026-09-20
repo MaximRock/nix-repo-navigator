@@ -103,13 +103,9 @@ class GraphBuilder:
                 # Shared references (other files use the package/file) keep
                 # the node alive; dropping one consumer must not strip the
                 # remaining consumers' edges.
-                if any(
-                    r[0] in _SHARED_REF_EDGE_TYPES for r in incoming
-                ):
+                if any(r[0] in _SHARED_REF_EDGE_TYPES for r in incoming):
                     continue
-                self.db._conn.execute(
-                    "DELETE FROM nodes WHERE id=?", (node_id,)
-                )
+                self.db._conn.execute("DELETE FROM nodes WHERE id=?", (node_id,))
                 deleted_node_ids.append(node_id)
 
         # Insert new nodes (including placeholders for external targets).
@@ -137,8 +133,13 @@ class GraphBuilder:
         for edge in new_edges:
             self.db.upsert_edge(edge)
 
+        # Drop synthetic placeholders left without edges by the rebuild
+        # above (BUG-004 D5). Runs after the edge inserts so fresh
+        # placeholders — which already have incoming edges — survive.
+        pruned = self.db.prune_orphan_synthetic_nodes()
+
         # ---- NxGraph delta ----------------------------------------------
-        removed_node_ids = list(deleted_node_ids)
+        removed_node_ids = list(deleted_node_ids) + pruned
         # For edges we already deleted old outgoing, but we need to tell
         # NxGraph which edges to drop and which to add.
         removed_edge_ids = list(old_edge_ids - new_edge_ids)
@@ -214,6 +215,10 @@ class GraphBuilder:
             self.db.upsert_node(node)
         for edge in dedup_edges.values():
             self.db.upsert_edge(edge)
+
+        # Drop synthetic placeholders left without edges by the rebuild
+        # (BUG-004 D5); the NxGraph rebuild below reads the pruned DB state.
+        self.db.prune_orphan_synthetic_nodes()
 
         # ---- NxGraph full rebuild ---------------------------------------
         # Rebuild from DB to guarantee consistency (includes placeholders

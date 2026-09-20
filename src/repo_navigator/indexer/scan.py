@@ -416,8 +416,11 @@ def _purge_paths(db: Database, nx_graph: NxGraph, stale_paths: set[str | None]) 
                 db._conn.execute("PRAGMA foreign_keys=ON")
 
     # NxGraph delta
+    # Drop synthetic placeholders orphaned by the purge (BUG-004 D5):
+    # path-based deletion above never matches them (path IS NULL).
+    pruned = db.prune_orphan_synthetic_nodes()
     nx_graph.apply_delta(
-        removed_node_ids=list(stale_node_ids),
+        removed_node_ids=list(stale_node_ids) + pruned,
         removed_edge_ids=list(stale_edge_ids),
     )
     # Note: generation is incremented by build_all; for purge-only case

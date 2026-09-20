@@ -31,22 +31,16 @@ class TestImports:
             "{ config, ... }: let modulesHome = toString ../../modules/home; in"
             ' { imports = [ "${modulesHome}/ai-agents/comfyui" ]; }'
         )
-        assert [i.path for i in r.imports] == [
-            "../../modules/home/ai-agents/comfyui"
-        ]
+        assert [i.path for i in r.imports] == ["../../modules/home/ai-agents/comfyui"]
         assert r.unresolved == []
 
     def test_interpolated_import_via_plain_path_var(self) -> None:
-        r = extract_source(
-            'let d = ../shared; in { imports = [ "${d}/x.nix" ]; }'
-        )
+        r = extract_source('let d = ../shared; in { imports = [ "${d}/x.nix" ]; }')
         assert [i.path for i in r.imports] == ["../shared/x.nix"]
         assert r.unresolved == []
 
     def test_interpolated_import_absolute_var(self) -> None:
-        r = extract_source(
-            'let d = /etc/nixos; in { imports = [ "${d}/hw.nix" ]; }'
-        )
+        r = extract_source('let d = /etc/nixos; in { imports = [ "${d}/hw.nix" ]; }')
         assert [i.path for i in r.imports] == ["/etc/nixos/hw.nix"]
 
     def test_interpolated_import_unresolvable_stays_unresolved(self) -> None:
@@ -57,9 +51,7 @@ class TestImports:
 
     def test_interpolated_import_chained_var_stays_unresolved(self) -> None:
         # Single-level only: var→var chains are not followed.
-        r = extract_source(
-            'let a = ../x; b = a; in { imports = [ "${b}/y.nix" ]; }'
-        )
+        r = extract_source('let a = ../x; b = a; in { imports = [ "${b}/y.nix" ]; }')
         assert r.imports == []
         assert len(r.unresolved) == 1
 
@@ -72,9 +64,7 @@ class TestImports:
         assert len(r.unresolved) == 1
 
     def test_interpolated_imports_list_in_local_let(self) -> None:
-        r = extract_source(
-            '{ imports = let d = ../shared; in [ "${d}/x.nix" ]; }'
-        )
+        r = extract_source('{ imports = let d = ../shared; in [ "${d}/x.nix" ]; }')
         assert [i.path for i in r.imports] == ["../shared/x.nix"]
         assert r.unresolved == []
 
@@ -231,9 +221,7 @@ class TestConfigs:
 
 class TestSpecialisation:
     def test_specialisation(self) -> None:
-        r = extract_source(
-            "{ specialisation.desktop.configuration = { x = 1; }; }"
-        )
+        r = extract_source("{ specialisation.desktop.configuration = { x = 1; }; }")
         assert len(r.specialisations) == 1
         assert r.specialisations[0].name == "desktop"
 
@@ -276,6 +264,48 @@ class TestFunctions:
         assert len(r.functions) == 1
         assert r.functions[0].name == "myFunc"
         assert r.functions[0].args == ["x"]
+
+
+class TestPlainAttrsetSets:
+    """BUG-004 D3: dotted assignments outside `config` blocks are sets."""
+
+    def test_plain_modules_tree(self) -> None:
+        r = extract_source(
+            "{ config, ... }: { modules.home = { comfyui.enable = false; }; }"
+        )
+        assert [(c.attrpath, c.conditional) for c in r.configs] == [
+            ("modules.home.comfyui.enable", False)
+        ]
+
+    def test_plain_top_level_leaf(self) -> None:
+        r = extract_source('{ x = "${pkgs}/bin/foo"; }')
+        assert [c.attrpath for c in r.configs] == ["x"]
+
+    def test_plain_conditional(self) -> None:
+        r = extract_source(
+            "{ config, ... }: { modules.home = mkIf config.x.y { comfyui.enable = true; }; }"
+        )
+        paths = [(c.attrpath, c.conditional) for c in r.configs]
+        assert ("modules.home.comfyui.enable", True) in paths
+
+    def test_home_unknown_leaves(self) -> None:
+        r = extract_source('{ home.stateVersion = "25.05"; }')
+        assert [(c.attrpath, c.conditional) for c in r.configs] == [
+            ("home.stateVersion", False)
+        ]
+
+    def test_programs_unknown_settings(self) -> None:
+        r = extract_source('{ programs.git = { enable = true; userName = "m"; }; }')
+        assert sorted((c.attrpath, c.conditional) for c in r.configs) == [
+            ("programs.git.enable", False),
+            ("programs.git.userName", False),
+        ]
+
+    def test_handled_attrs_unchanged(self) -> None:
+        r = extract_source("{ config.services.foo.enable = true; }")
+        assert [(c.attrpath, c.conditional) for c in r.configs] == [
+            ("services.foo.enable", False)
+        ]
 
 
 class TestNormaliseImport:

@@ -187,7 +187,9 @@ class Database:
 
     def get_generation_id(self) -> int:
         with self._lock:
-            row = self._conn.execute("SELECT value FROM generation WHERE id=1").fetchone()
+            row = self._conn.execute(
+                "SELECT value FROM generation WHERE id=1"
+            ).fetchone()
             return int(row[0])
 
     def inc_generation_id(self) -> int:
@@ -239,6 +241,54 @@ class Database:
         """Remove every node of a file; edges cascade via foreign keys."""
         with self._lock, self.transaction():
             self._conn.execute("DELETE FROM nodes WHERE path=?", (path,))
+
+    def prune_orphan_synthetic_nodes(self) -> list[str]:
+        """Delete synthetic placeholders with no edges; return deleted ids.
+
+        Placeholder nodes (``metadata.synthetic``, ``path IS NULL``) are
+        created for external edge targets. File-owned purges
+        (``build_all`` path filter, ``build_file`` ownership edges) never
+        match them, so once the last referencing edge is gone they linger
+        forever (BUG-004 D5: gen-1 ``programs.wezterm.*`` surviving to
+        gen 9). Only degree-0 nodes are removed: a placeholder that is
+        still referenced — or unexpectedly owns edges — is kept.
+        """
+        with self._lock, self.transaction():
+            rows = self._conn.execute(
+                "SELECT id, metadata FROM nodes WHERE path IS NULL"
+            ).fetchall()
+            candidates: list[str] = []
+            for row in rows:
+                try:
+                    meta = json.loads(row["metadata"] or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if meta.get("synthetic") is True:
+                    candidates.append(row["id"])
+            if not candidates:
+                return []
+            placeholders = ",".join("?" for _ in candidates)
+            referenced = {
+                r[0]
+                for r in self._conn.execute(
+                    f"SELECT DISTINCT source FROM edges WHERE source IN ({placeholders})",
+                    tuple(candidates),
+                ).fetchall()
+            } | {
+                r[0]
+                for r in self._conn.execute(
+                    f"SELECT DISTINCT target FROM edges WHERE target IN ({placeholders})",
+                    tuple(candidates),
+                ).fetchall()
+            }
+            orphans = sorted(set(candidates) - referenced)
+            if orphans:
+                placeholders = ",".join("?" for _ in orphans)
+                self._conn.execute(
+                    f"DELETE FROM nodes WHERE id IN ({placeholders})",
+                    tuple(orphans),
+                )
+            return orphans
 
     def get_all_nodes(self) -> list[Node]:
         with self._lock:
@@ -352,15 +402,11 @@ class Database:
 
     def mark_dirty(self, path: str) -> None:
         with self._lock, self.transaction():
-            self._conn.execute(
-                "UPDATE file_state SET dirty=1 WHERE path=?", (path,)
-            )
+            self._conn.execute("UPDATE file_state SET dirty=1 WHERE path=?", (path,))
 
     def mark_clean(self, path: str) -> None:
         with self._lock, self.transaction():
-            self._conn.execute(
-                "UPDATE file_state SET dirty=0 WHERE path=?", (path,)
-            )
+            self._conn.execute("UPDATE file_state SET dirty=0 WHERE path=?", (path,))
 
     # ----------------------------------------------------------- flake_inputs
 
@@ -483,9 +529,7 @@ class Database:
         with self._lock, self.transaction():
             rows = self._conn.execute("SELECT key, expr FROM option_values").fetchall()
             stale_keys = [
-                r[0]
-                for r in rows
-                if any(stem in (r[1] or "") for stem in stems)
+                r[0] for r in rows if any(stem in (r[1] or "") for stem in stems)
             ]
             self._conn.executemany(
                 "UPDATE option_values SET status='stale' WHERE key=?",
@@ -502,17 +546,41 @@ class Database:
         tokens = [t.replace('"', '""') for t in query.split() if t]
         if not tokens:
             return []
-        match_expr = " ".join(f'"{t}"' for t in tokens)
+        # Quoted tokens joined by a bare space form an FTS5 PHRASE query
+        # (adjacent terms in order), so multi-word queries only matched
+        # literal phrases (BUG-004 D2). Join with AND instead.
+        match_and = " AND ".join(f'"{t}"' for t in tokens)
         with self._lock:
-            rows = self._conn.execute(
-                """
-                SELECT n.* FROM node_search s
-                JOIN nodes n ON n.rowid = s.rowid
-                WHERE node_search MATCH ?
-                LIMIT ?
-                """,
-                (match_expr, limit),
-            ).fetchall()
+            try:
+                rows = self._conn.execute(
+                    """
+                    SELECT n.* FROM node_search s
+                    JOIN nodes n ON n.rowid = s.rowid
+                    WHERE node_search MATCH ?
+                    LIMIT ?
+                    """,
+                    (match_and, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+            hits = [_row_to_node(r) for r in rows]
+            if hits or len(tokens) < 2:
+                return hits
+            # OR fallback: a strict AND with no hits still offers partial
+            # matches instead of an empty result.
+            match_or = " OR ".join(f'"{t}"' for t in tokens)
+            try:
+                rows = self._conn.execute(
+                    """
+                    SELECT n.* FROM node_search s
+                    JOIN nodes n ON n.rowid = s.rowid
+                    WHERE node_search MATCH ?
+                    LIMIT ?
+                    """,
+                    (match_or, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
             return [_row_to_node(r) for r in rows]
 
 

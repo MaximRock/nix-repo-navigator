@@ -134,6 +134,24 @@ def test_e2e_dynamic_update(tmp_path: Path) -> None:
     assert db.get_node("nix:c.nix") is not None
 
 
+def test_e2e_deleted_file_prunes_orphan_synthetic(tmp_path: Path) -> None:
+    # BUG-004 D5: a synthetic option placeholder orphaned by file
+    # deletion is GC'd from both DB and NxGraph on re-index.
+    _write(tmp_path / "a.nix", "{ modules.home.comfyui.enable = false; }")
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+    assert db.get_node("nix_option:modules.home.comfyui.enable") is not None
+
+    (tmp_path / "a.nix").unlink()
+    index_repo(tmp_path, db, g, config=cfg)
+    assert db.get_node("nix_option:modules.home.comfyui.enable") is None
+    assert not g.has_node("nix_option:modules.home.comfyui.enable")
+
+
 def test_e2e_nested_import_normalisation(tmp_path: Path) -> None:
     # Ensure imports are normalised relative to file's directory
     _write(tmp_path / "modules" / "a.nix", "{ imports = [ ./b.nix ]; }")
@@ -339,13 +357,15 @@ def test_e2e_modules_list_edges_and_queries(tmp_path: Path) -> None:
     node_by_id = {n.id: n for n in db.get_all_nodes()}
     assert node_by_id["flake_input:sops-nix"].type == NodeType.flake_input
 
-    # Dependencies closure from the flake reaches the wired modules, but
-    # `references` is not a dependency edge so flake inputs stay out.
+    # Dependencies closure from the flake reaches the wired modules, and
+    # (BUG-004 D1) `references`/`sets` are dependency edges too, so flake
+    # inputs and set options are part of the forward chain.
     q = QueryEngine(db, g, config=cfg)
     dep_ids = {d.node.id for d in q.dependencies("nix:flake.nix").depends_on}
     assert "nix:modules/nixos/default.nix" in dep_ids
     assert "nix:modules/nixos/home-manager.nix" in dep_ids
-    assert "flake_input:sops-nix" not in dep_ids
+    assert "flake_input:sops-nix" in dep_ids
+    assert "flake_input:home-manager" in dep_ids
 
     # Dependents of a wired module walk back through lib to the flake.
     dent_ids = {

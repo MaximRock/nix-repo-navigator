@@ -99,3 +99,27 @@ npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --roo
 Budgets enforced: `hop` raises `ValueError` if `width*depth>100`, `depth>10` etc. → MCP `ToolError` (`is_error`).
 
 Cache: `QueryEngine` LRU key `(method, params, generation_id)`, cleared on `generation` bump.
+
+## Semantics notes (BUG-004)
+
+- `observe depth=1` returns the direct neighbourhood (≤20 neighbours).
+  `depth>1` is a **full incident-set expansion**: forward + reverse BFS up to
+  `depth`, attaching every visited node's own edges — *without*
+  path-anchoring to the start node or relevance ranking. Distant neighbours
+  (e.g. `bun2nix→nixpkgs`-style edges two hops away) are therefore expected,
+  not a bug. For anchored traversal use `hop --relation …`,
+  `dependencies`/`dependents` (evidence chains included), or `blast_radius`.
+- `dependencies`/`dependents` close over the full forward edge set
+  (`imports`, `requires`, `python_imports`, `references`, `uses_package`,
+  `sets`, `configures`, `generates`). Structural edges (`declares`,
+  `specialises`, `passes_args`) are excluded: declaring an option is not a
+  dependency on it.
+- `blast_radius` returns reverse-BFS nodes but only edges lying on some path
+  to the target (sibling imports of visited modules are excluded).
+- `find_symbol` (non-fuzzy) is FTS5: multi-word queries are AND-ed across
+  tokens (not a phrase); an empty AND falls back to OR. `fuzzy`/filtered
+  queries use LIKE.
+- `introspect_option --eval`: `defined_in` covers sets from any static
+  attrpath tree (including plain `modules.* = { … }` attrsets, not only
+  `config` blocks). Eval failures surface as
+  `value_status: "<status>: <first error line>"` instead of a bare status.
