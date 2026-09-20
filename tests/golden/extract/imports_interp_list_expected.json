@@ -1,0 +1,44 @@
+{
+  "edges": [
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:imports_interp_list.nix",
+      "target": "nix:../../modules/home/ai-agents/comfyui/default.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:imports_interp_list.nix",
+      "target": "nix:../../modules/home/ai-agents/nix-repo-navigator/default.nix",
+      "type": "imports",
+      "weight": 1.0
+    },
+    {
+      "metadata": {
+        "conditional": false,
+        "line": 0
+      },
+      "source": "nix:imports_interp_list.nix",
+      "target": "nix:../../modules/home/ai-agents/opencode/default.nix",
+      "type": "imports",
+      "weight": 1.0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "nix:imports_interp_list.nix",
+      "lang": "nix",
+      "metadata": {},
+      "name": "imports_interp_list.nix",
+      "path": "imports_interp_list.nix",
+      "type": "nix_module"
+    }
+  ]
+}

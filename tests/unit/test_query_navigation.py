@@ -129,6 +129,80 @@ class TestHop:
             engine.hop("nix:a.nix", depth=11, width=5)
 
 
+def _setup_dangling() -> tuple[Database, NxGraph, QueryEngine]:
+    """Chain fixture with a dangling edge: c.nix -> nix:d.nix kept, node dropped.
+
+    Simulates an FK-off bulk delete (cf. GraphBuilder.build_all): the node
+    row is removed while the edge row survives, and the NxGraph copy is
+    dropped too — the exact divergence BUG-003 P1 is about.
+    """
+    db, g, engine = _setup_chain()
+    with db._lock, db.transaction():
+        db._conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            db._conn.execute("DELETE FROM nodes WHERE id=?", ("nix:d.nix",))
+        finally:
+            db._conn.execute("PRAGMA foreign_keys=ON")
+    g.apply_delta(removed_node_ids=["nix:d.nix"])
+    return db, g, engine
+
+
+class TestDangling:
+    def test_observe_shows_dangling_flagged(self) -> None:
+        _, _, engine = _setup_dangling()
+        obs = engine.observe("nix:c.nix", depth=1)
+        flagged = [n for n in obs.neighbors if n.dangling]
+        assert len(flagged) == 1
+        assert flagged[0].node.id == "nix:d.nix"
+        assert flagged[0].edge.type.value == "imports"
+        assert flagged[0].node.metadata.get("dangling") is True
+        assert flagged[0].node.metadata.get("synthetic") is True
+        # Non-dangling neighbors stay unflagged.
+        assert all(not n.dangling for n in obs.neighbors if n.node.id != "nix:d.nix")
+
+    def test_observe_depth2_shows_dangling(self) -> None:
+        _, _, engine = _setup_dangling()
+        obs = engine.observe("nix:b.nix", depth=2)
+        ids = {n.node.id: n.dangling for n in obs.neighbors}
+        assert ids.get("nix:d.nix") is True
+
+    def test_hop_shows_dangling_flagged(self) -> None:
+        _, _, engine = _setup_dangling()
+        sub = engine.hop("nix:c.nix", depth=1)
+        assert sub.dangling == ["nix:d.nix"]
+        assert any(
+            e.type.value == "imports" and e.target == "nix:d.nix" for e in sub.edges
+        )
+        node = next(n for n in sub.nodes if n.id == "nix:d.nix")
+        assert node.metadata.get("dangling") is True
+
+    def test_hop_relation_filter_applies_to_dangling(self) -> None:
+        _, _, engine = _setup_dangling()
+        sub = engine.hop("nix:c.nix", relation="declares", depth=1)
+        assert sub.dangling == []
+        assert all(e.target != "nix:d.nix" for e in sub.edges)
+
+    def test_hop_depth_contract_unchanged(self) -> None:
+        # The supplement must not leak nodes past the depth frontier.
+        _, _, engine = _setup_chain()
+        sub = engine.hop("nix:a.nix", depth=2, width=10)
+        assert sub.dangling == []
+        assert "nix:d.nix" not in {n.id for n in sub.nodes}
+
+    def test_summarize_flags_dangling_targets(self) -> None:
+        _, _, engine = _setup_dangling()
+        summary = engine.summarize_module("c.nix")
+        assert any(
+            e.type.value == "imports" and e.target == "nix:d.nix"
+            for e in summary.outgoing_edges
+        )
+        assert summary.dangling_targets == ["nix:d.nix"]
+
+    def test_summarize_no_dangling_when_clean(self) -> None:
+        _, _, engine = _setup_chain()
+        assert engine.summarize_module("c.nix").dangling_targets == []
+
+
 class TestPath:
     def test_path_exists(self) -> None:
         _, _, engine = _setup_chain()

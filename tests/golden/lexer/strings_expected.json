@@ -20,6 +20,12 @@
   {
     "col": 12,
     "line": 1,
+    "type": "STR_END",
+    "value": "\""
+  },
+  {
+    "col": 12,
+    "line": 1,
     "type": "SEMI",
     "value": ";"
   },
@@ -40,6 +46,12 @@
     "line": 2,
     "type": "STRING_HEREDOC",
     "value": "\n  line1\n  line2\n"
+  },
+  {
+    "col": 3,
+    "line": 5,
+    "type": "STR_END",
+    "value": "''"
   },
   {
     "col": 3,

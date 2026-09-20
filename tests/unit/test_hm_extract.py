@@ -89,3 +89,49 @@ def test_package_programs_inputs_select() -> None:
 def test_package_ordinary_selects_have_no_input_ref() -> None:
     r = extract_source("{ pkgs }: { home.packages = [ pkgs.git vim ]; }")
     assert r.modules == []
+
+
+def test_package_via_shell_wrapper_sibling_binding() -> None:
+    # BUG-003 P0-2 (real comfyui shape): the package var is a
+    # writeShellScriptBin wrapper; the inputs chain lives in a sibling
+    # binding referenced from inside the wrapper script.
+    src = (
+        "{ pkgs, inputs, system }: let"
+        " comfyui = inputs.comfyui-nix.packages.${system}.rocm;"
+        ' comfy-ui = pkgs.writeShellScriptBin "comfy-ui"'
+        " ''exec ${comfyui}/bin/comfy-ui\"$@\"'';"
+        " in { home.packages = [ comfy-ui ]; }"
+    )
+    r = extract_source(src)
+    assert any(p.attribute == "comfy-ui" for p in r.packages)
+    assert len(r.modules) == 1
+    ref = r.modules[0]
+    assert ref.name == "comfyui-nix"
+    assert ref.select == "packages.….rocm"
+    assert ref.partial is True
+    pr = parse_module(Path("comfyui.nix"), r)
+    edge = next(e for e in pr.edges if e.target == "flake_input:comfyui-nix")
+    assert edge.type.value == "references"
+    assert edge.metadata.get("partial") is True
+    assert edge.metadata.get("select") == "packages.….rocm"
+
+
+def test_package_direct_dynamic_select_is_partial() -> None:
+    r = extract_source("{ home.packages = [ inputs.foo.packages.${system}.bar ]; }")
+    assert len(r.modules) == 1
+    assert r.modules[0].name == "foo"
+    assert r.modules[0].partial is True
+
+
+def test_package_static_select_is_not_partial() -> None:
+    r = extract_source("{ home.packages = [ inputs.foo.bar.baz ]; }")
+    assert len(r.modules) == 1
+    assert r.modules[0].partial is False
+
+
+def test_package_cyclic_let_bindings_terminate() -> None:
+    r = extract_source(
+        "let a = b; b = a; in { home.packages = [ a ]; }"
+    )
+    assert any(p.attribute == "a" for p in r.packages)
+    assert r.modules == []

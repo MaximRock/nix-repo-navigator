@@ -26,6 +26,12 @@
   {
     "col": 29,
     "line": 2,
+    "type": "STR_END",
+    "value": "\""
+  },
+  {
+    "col": 29,
+    "line": 2,
     "type": "SEMI",
     "value": ";"
   },
@@ -70,6 +76,12 @@
     "line": 3,
     "type": "STRING_DOUBLE",
     "value": "github:NixOS/nixpkgs/nixos-unstable"
+  },
+  {
+    "col": 61,
+    "line": 3,
+    "type": "STR_END",
+    "value": "\""
   },
   {
     "col": 61,

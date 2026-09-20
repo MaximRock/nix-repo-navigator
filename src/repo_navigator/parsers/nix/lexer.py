@@ -28,6 +28,7 @@ class TokenType(StrEnum):
     STRING_HEREDOC = "STRING_HEREDOC"
     INTERPOL_START = "INTERPOL_START"
     INTERPOL_END = "INTERPOL_END"
+    STR_END = "STR_END"
     LBRACE = "LBRACE"
     RBRACE = "RBRACE"
     LBRACK = "LBRACK"
@@ -497,6 +498,7 @@ class _Lexer:
         if c == '"':
             self._flush_string()
             self._advance()
+            self._emit(TokenType.STR_END, '"', self.line, self.col)
             self.mode = "root"
             return
         if c == "\\":
@@ -532,6 +534,7 @@ class _Lexer:
                 # A '' at the start of a line closes the indented string.
                 self._flush_string()
                 self._advance(2)
+                self._emit(TokenType.STR_END, "''", self.line, self.col)
                 self.mode = "root"
                 return
             if nxt == "$":
@@ -549,6 +552,7 @@ class _Lexer:
             if nxt == "":  # EOF after '' -> close
                 self._flush_string()
                 self._advance(2)
+                self._emit(TokenType.STR_END, "''", self.line, self.col)
                 self.mode = "root"
                 return
             # Lenient close: if `''` mid-line followed by a delimiter
@@ -556,6 +560,7 @@ class _Lexer:
             if nxt in (";", ",", "}", ")", "]", "\n"):
                 self._flush_string()
                 self._advance(2)
+                self._emit(TokenType.STR_END, "''", self.line, self.col)
                 self.mode = "root"
                 return
             # mid-line '' not an escape: consume and continue

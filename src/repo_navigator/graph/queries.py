@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from repo_navigator.config import Config
+from repo_navigator.graph.builder import _placeholder_for_target
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.models.edges import Edge, EdgeType
@@ -31,6 +32,19 @@ from repo_navigator.models.queries import (
     Subgraph,
     SyncMode,
 )
+
+
+def _dangling_node(target_id: str) -> Node:
+    """Synthetic read-only stand-in for a dangling edge endpoint.
+
+    The node is never persisted; ``metadata["dangling"]`` flags it so every
+    view (observe/hop/summarize) shows dangling edges instead of silently
+    dropping them (BUG-003 P1).
+    """
+    node = _placeholder_for_target(target_id)
+    assert node is not None  # the fallback branch always returns a Node
+    node.metadata = {**node.metadata, "dangling": True}
+    return node
 
 
 class QueryEngine:
@@ -190,6 +204,14 @@ class QueryEngine:
                     other = self.db.get_node(other_id)
                     if other is not None:
                         neighbors.append(Neighbor(edge=edge, node=other))
+                    else:
+                        neighbors.append(
+                            Neighbor(
+                                edge=edge,
+                                node=_dangling_node(other_id),
+                                dangling=True,
+                            )
+                        )
                     if len(neighbors) >= 20:
                         break
                 return Observation(node=node, neighbors=neighbors, generation_id=gen)
@@ -210,21 +232,42 @@ class QueryEngine:
             neighbors = []
             for nid in all_ids:
                 n = self.db.get_node(nid)
-                if n is None:
-                    continue
+                dangling = n is None
+                if dangling:
+                    n = _dangling_node(nid)
                 # Find connecting edge (any)
                 edges = self.db.get_edges_for_node(nid)
                 # Find edge that connects to original or intermediate
                 # For simplicity, attach first edge that touches nid and is in BFS frontier
                 edge = edges[0] if edges else None
                 if edge is not None:
-                    neighbors.append(Neighbor(edge=edge, node=n))
+                    neighbors.append(Neighbor(edge=edge, node=n, dangling=dangling))
                 else:
                     # Create synthetic edge for BFS depth without direct edge?
                     # Skip
                     pass
                 if len(neighbors) >= 20:
                     break
+            # P1: BFS runs on NxGraph, so dangling endpoints whose graph
+            # node is gone are unreachable above.  Supplement them flagged
+            # from the DB (both directions, like depth 1), within budget.
+            # May overshoot the depth frontier by one hop — flagged only.
+            supplemented: set[str] = set()
+            for nid in [node_id, *sorted(all_ids)]:
+                if len(neighbors) >= 20:
+                    break
+                for e in self.db.get_edges_for_node(nid):
+                    if len(neighbors) >= 20:
+                        break
+                    other_id = e.target if e.source == nid else e.source
+                    if other_id in all_ids or other_id in supplemented:
+                        continue
+                    if self.db.get_node(other_id) is not None:
+                        continue
+                    supplemented.add(other_id)
+                    neighbors.append(
+                        Neighbor(edge=e, node=_dangling_node(other_id), dangling=True)
+                    )
             return Observation(node=node, neighbors=neighbors, generation_id=gen)
 
         return self._cached(("observe", node_id, depth), _compute)
@@ -255,6 +298,7 @@ class QueryEngine:
 
             # BFS with relation filter
             visited: dict[str, Node] = {}
+            levels: dict[str, int] = {node_id: 0}
             queue: deque[tuple[str, int]] = deque([(node_id, 0)])
             seen: set[str] = {node_id}
             edges_collected: dict[str, Edge] = {}
@@ -283,6 +327,7 @@ class QueryEngine:
                     if succ in seen:
                         continue
                     seen.add(succ)
+                    levels[succ] = level + 1
                     data = g.nodes[succ].get("data")
                     if data is not None:
                         visited[succ] = data
@@ -297,12 +342,38 @@ class QueryEngine:
                                 edges_collected[e.id] = e
                     queue.append((succ, level + 1))
 
-            nodes = list(visited.values())
+            # P1 policy: an edge whose target has no node in the DB
+            # (dangling — e.g. left behind by an FK-off bulk delete) must be
+            # shown flagged, not silently dropped, so hop agrees with
+            # summarize/observe.  The supplement only covers truly dangling
+            # targets within the depth frontier: hop's depth/width/relation
+            # contract is otherwise unchanged, and DB is the source of
+            # truth (a DB-missing node overrides stale NxGraph data).
+            dangling: list[str] = []
+            for cur, cur_level in list(levels.items()):
+                if cur_level >= depth:
+                    continue
+                for e in self.db.get_edges_for_node(cur):
+                    if e.source != cur:
+                        continue
+                    if relation is not None and not (
+                        e.type.value == relation or str(e.type) == relation
+                    ):
+                        continue
+                    if self.db.get_node(e.target) is not None:
+                        continue
+                    edges_collected.setdefault(e.id, e)
+                    if e.target not in dangling:
+                        dangling.append(e.target)
+                        visited[e.target] = _dangling_node(e.target)
             # Also include source node? Subgraph should contain traversed nodes, not source?
             # For hop, we include all visited excluding source, but spec is ambiguous.
             # We include visited nodes only.
             return Subgraph(
-                nodes=nodes, edges=list(edges_collected.values()), generation_id=gen
+                nodes=list(visited.values()),
+                edges=list(edges_collected.values()),
+                dangling=dangling,
+                generation_id=gen,
             )
 
         return self._cached(("hop", node_id, relation, depth, width), _compute)
@@ -581,11 +652,18 @@ class QueryEngine:
                     key_symbols.append(e.target)
             # Limit
             key_symbols = sorted(set(key_symbols))[:20]
+            # P1 policy: flag dangling edge endpoints instead of hiding them,
+            # so summarize agrees with observe/hop.
+            dangling_targets = sorted(
+                {e.target for e in outgoing if self.db.get_node(e.target) is None}
+                | {e.source for e in incoming if self.db.get_node(e.source) is None}
+            )
             return ModuleSummary(
                 path=path,
                 incoming_edges=incoming,
                 outgoing_edges=outgoing,
                 key_symbols=key_symbols,
+                dangling_targets=dangling_targets,
                 generation_id=gen,
             )
 

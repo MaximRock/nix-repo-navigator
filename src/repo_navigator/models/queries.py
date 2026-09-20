@@ -32,6 +32,9 @@ class Neighbor(BaseModel):
 
     edge: Edge
     node: Node
+    # True when the edge target/source has no node in the DB (dangling
+    # edge): *node* is then a synthetic, read-only placeholder.
+    dangling: bool = False
 
 
 class Observation(BaseModel):
@@ -47,6 +50,8 @@ class Subgraph(BaseModel):
 
     nodes: list[Node] = Field(default_factory=list)
     edges: list[Edge] = Field(default_factory=list)
+    # Ids of synthetic nodes standing in for dangling edge targets.
+    dangling: list[str] = Field(default_factory=list)
     generation_id: int
 
 
@@ -137,6 +142,8 @@ class ModuleSummary(BaseModel):
     incoming_edges: list[Edge] = Field(default_factory=list)
     outgoing_edges: list[Edge] = Field(default_factory=list)
     key_symbols: list[str] = Field(default_factory=list)
+    # Edge endpoints with no node in the DB (dangling edges), if any.
+    dangling_targets: list[str] = Field(default_factory=list)
     generation_id: int
 
 

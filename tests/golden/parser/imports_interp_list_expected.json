@@ -1,0 +1,63 @@
+{
+  "attrs": [
+    {
+      "name": "imports",
+      "value": {
+        "items": [
+          {
+            "parts": [
+              {
+                "type": "Literal",
+                "value": "",
+                "value_type": "string"
+              },
+              {
+                "base": null,
+                "path": [
+                  "base"
+                ],
+                "type": "Select"
+              },
+              {
+                "type": "Literal",
+                "value": "/a",
+                "value_type": "string"
+              }
+            ],
+            "type": "Interpolation"
+          },
+          {
+            "parts": [
+              {
+                "type": "Literal",
+                "value": "",
+                "value_type": "string"
+              },
+              {
+                "base": null,
+                "path": [
+                  "base"
+                ],
+                "type": "Select"
+              },
+              {
+                "type": "Literal",
+                "value": "/b",
+                "value_type": "string"
+              }
+            ],
+            "type": "Interpolation"
+          },
+          {
+            "type": "Literal",
+            "value": "plain",
+            "value_type": "string"
+          }
+        ],
+        "type": "List"
+      }
+    }
+  ],
+  "recursive": false,
+  "type": "AttrSet"
+}

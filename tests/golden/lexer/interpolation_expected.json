@@ -30,6 +30,12 @@
     "value": "!"
   },
   {
+    "col": 17,
+    "line": 1,
+    "type": "STR_END",
+    "value": "\""
+  },
+  {
     "col": 1,
     "line": 2,
     "type": "EOF",

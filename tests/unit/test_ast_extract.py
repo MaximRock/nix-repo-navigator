@@ -78,6 +78,28 @@ class TestImports:
         assert [i.path for i in r.imports] == ["../shared/x.nix"]
         assert r.unresolved == []
 
+    def test_interpolated_imports_list_does_not_merge(self) -> None:
+        # BUG-003 P0-1: adjacent interpolated strings in a list must stay
+        # separate items (parsed from text, not from a hand-built AST).
+        r = extract_source(
+            "{ config, ... }: let modulesHome = toString ../../modules/home; in"
+            ' { imports = [ "${modulesHome}/ai-agents/a"'
+            ' "${modulesHome}/ai-agents/b" "${modulesHome}/ai-agents/c" ]; }'
+        )
+        assert [i.path for i in r.imports] == [
+            "../../modules/home/ai-agents/a",
+            "../../modules/home/ai-agents/b",
+            "../../modules/home/ai-agents/c",
+        ]
+        assert r.unresolved == []
+
+    def test_interpolated_imports_list_mixed_static_and_dynamic(self) -> None:
+        r = extract_source(
+            'let d = ../shared; in { imports = [ ./static.nix "${d}/x.nix" ]; }'
+        )
+        assert [i.path for i in r.imports] == ["./static.nix", "../shared/x.nix"]
+        assert r.unresolved == []
+
 
 class TestBareImports:
     def test_import_in_let_binding(self) -> None:

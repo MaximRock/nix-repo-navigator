@@ -45,6 +45,8 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
         mod_meta: dict = {"line": mod.line}
         if mod.select:
             mod_meta["select"] = mod.select
+        if mod.partial:
+            mod_meta["partial"] = True
         edges.append(
             RawEdge(
                 source=module_id,

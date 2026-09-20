@@ -569,6 +569,12 @@ class _Parser:
                 inner = self._parse_expr()
                 self._expect(TokenType.INTERPOL_END)
                 parts.append(inner)
+            elif tok.type == TokenType.STR_END:
+                # End of the current string literal: consume the boundary and
+                # stop so adjacent strings (e.g. list items) do not merge
+                # into a single Interpolation node.
+                self._next()
+                break
             else:
                 break
         if len(parts) == 1 and isinstance(parts[0], Literal):
@@ -649,6 +655,10 @@ class _Parser:
                 expr = self._parse_stringish()
                 return ("dyn", expr.model_dump_json())
             self._next()
+            # Static quoted segment ("foo"): skip its closing-quote boundary.
+            nxt = self._peek()
+            if nxt is not None and nxt.type == TokenType.STR_END:
+                self._next()
             return ("name", tok.value)
         if tok.type == TokenType.INTERPOL_START:
             # Может быть несколько интерполяций и строковых фрагментов:

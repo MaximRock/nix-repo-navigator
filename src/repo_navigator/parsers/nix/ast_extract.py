@@ -42,11 +42,16 @@ class ModuleRef:
     Bare selects like ``sops-nix.nixosModules.sops`` reference a module
     exported by a flake input: *name* is the input name (first path
     component), *select* the remainder (``None`` for a bare ``name``).
+
+    *partial* marks provenance from a static ``inputs.<name>`` prefix whose
+    tail is dynamic (e.g. ``${system}`` in the middle): the input is certain,
+    the selected attribute is not.
     """
 
     name: str
     select: str | None = None
     line: int = 0
+    partial: bool = False
 
 
 @dataclass
@@ -955,28 +960,106 @@ def _inputs_ref_of_select(sel: Select) -> ModuleRef | None:
             name=sel.path[1],
             select=".".join(rest) or None,
             line=line if isinstance(line, int) else 0,
+            partial="…" in rest,
         )
     return None
 
 
-def _inputs_ref_via_let_env(item: Select, env: dict[str, Expr]) -> ModuleRef | None:
-    """Resolve a bare package var through *env* to an inputs reference.
+def _collect_inputs_refs(
+    expr: Expr,
+    env: dict[str, Expr],
+    depth: int = 3,
+    _seen: tuple[str, ...] = (),
+) -> list[ModuleRef]:
+    """Collect ``inputs.<name>`` references under *expr*, transitively.
 
-    E.g. ``home.packages = [ comfy-ui ]`` with
-    ``comfy-ui = …`` / ``comfyui = inputs.comfyui-nix.packages.…`` bound in
-    the same file's ``let``.  Single hop only.
+    Walks the value subtree (interpolations, call args, list items, attr
+    values, …) and resolves bare single-name selects through *env* up to
+    *depth* var-hops.  This catches the real-world wrapper pattern where the
+    package var is built by ``writeShellScriptBin`` from a sibling binding
+    holding the ``inputs.…`` chain::
+
+        comfyui = inputs.comfyui-nix.packages.${system}.rocm;
+        comfy-ui = pkgs.writeShellScriptBin "comfy-ui" ''exec ${comfyui}/…''
+
+    *depth* bounds var-hops and *_seen* guards cyclic bindings
+    (``a = b; b = a``).  Results are de-duplicated by ``(name, select)``.
     """
-    direct = _inputs_ref_of_select(item)
-    if direct is not None:
-        return direct
-    if (
-        item.base is None
-        and len(item.path) == 1
-        and item.path[0] in env
-        and isinstance(env[item.path[0]], Select)
-    ):
-        return _inputs_ref_of_select(env[item.path[0]])
-    return None
+    found: dict[tuple[str, str | None], ModuleRef] = {}
+
+    def _emit(ref: ModuleRef) -> None:
+        key = (ref.name, ref.select)
+        if key not in found:
+            found[key] = ref
+
+    def _walk(
+        node: Expr, local_env: dict[str, Expr], budget: int, seen: tuple[str, ...]
+    ) -> None:
+        if isinstance(node, Select):
+            if node.base is not None:
+                _walk(node.base, local_env, budget, seen)
+                return
+            if not node.path:
+                return
+            if node.path[0] == "inputs":
+                ref = _inputs_ref_of_select(node)
+                if ref is not None:
+                    _emit(ref)
+                return
+            if (
+                len(node.path) == 1
+                and budget > 0
+                and node.path[0] in local_env
+                and node.path[0] not in seen
+            ):
+                _walk(
+                    local_env[node.path[0]],
+                    local_env,
+                    budget - 1,
+                    seen + (node.path[0],),
+                )
+            return
+        if isinstance(node, Interpolation):
+            for part in node.parts:
+                if isinstance(part, Expr):
+                    _walk(part, local_env, budget, seen)
+        elif isinstance(node, FunctionCall):
+            _walk(node.func, local_env, budget, seen)
+            _walk(node.arg, local_env, budget, seen)
+        elif isinstance(node, List):
+            for item in node.items:
+                _walk(item, local_env, budget, seen)
+        elif isinstance(node, AttrSet):
+            for attr in node.attrs:
+                if attr.value is not None:
+                    _walk(attr.value, local_env, budget, seen)
+        elif isinstance(node, LetIn):
+            nested = dict(local_env)
+            for binding in node.bindings:
+                if isinstance(binding.name, str) and binding.value is not None:
+                    nested[binding.name] = binding.value
+                    _walk(binding.value, nested, budget, seen)
+            _walk(node.body, nested, budget, seen)
+        elif isinstance(node, Function):
+            _walk(node.body, local_env, budget, seen)
+        elif isinstance(node, With):
+            _walk(node.expr, local_env, budget, seen)
+            _walk(node.body, local_env, budget, seen)
+        elif isinstance(node, Assert):
+            _walk(node.assertion, local_env, budget, seen)
+            _walk(node.body, local_env, budget, seen)
+        elif isinstance(node, IfThenElse):
+            _walk(node.cond, local_env, budget, seen)
+            _walk(node.then_, local_env, budget, seen)
+            _walk(node.else_, local_env, budget, seen)
+        elif isinstance(node, BinaryOp):
+            _walk(node.left, local_env, budget, seen)
+            _walk(node.right, local_env, budget, seen)
+        elif isinstance(node, UnaryOp):
+            _walk(node.expr, local_env, budget, seen)
+
+    _walk(expr, env, depth, _seen)
+    return list(found.values())
 
 
 def _process_home_packages(
@@ -988,9 +1071,7 @@ def _process_home_packages(
     for item in value.items:
         if isinstance(item, Select) and item.base is None and item.path:
             result.packages.append(PackageRef(attribute=".".join(item.path)))
-            ref = _inputs_ref_via_let_env(item, env)
-            if ref is not None:
-                result.modules.append(ref)
+            result.modules.extend(_collect_inputs_refs(item, env))
         elif isinstance(item, Literal):
             result.packages.append(PackageRef(attribute=str(item.value)))
 
@@ -1044,9 +1125,8 @@ def _process_programs(
                             else attr_path
                         )
                     )
-                    ref = _inputs_ref_via_let_env(field_attr.value, env)
-                    if ref is not None:
-                        result.modules.append(ref)
+                    refs = _collect_inputs_refs(field_attr.value, env)
+                    result.modules.extend(refs)
                 elif isinstance(field_attr.value, Literal):
                     result.packages.append(
                         PackageRef(attribute=str(field_attr.value.value))
