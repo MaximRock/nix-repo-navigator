@@ -14,7 +14,9 @@
     {
       "id": "nix:plain_attrset_sets.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "plain_attrset_sets.nix",
       "path": "plain_attrset_sets.nix",
       "type": "nix_module"

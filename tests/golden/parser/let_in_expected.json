@@ -1,6 +1,7 @@
 {
   "bindings": [
     {
+      "line": 1,
       "name": "x",
       "value": {
         "type": "Literal",
@@ -9,6 +10,7 @@
       }
     },
     {
+      "line": 1,
       "name": "y",
       "value": {
         "type": "Literal",

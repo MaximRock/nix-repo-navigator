@@ -109,6 +109,39 @@ def test_dev_index(tmp_path: Path) -> None:
     assert "indexed" in result.output.lower()
 
 
+def test_index_plugin_flags(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "mod.py").write_text("def f():\n    return 1\n")
+    db_path = tmp_path / "test.db"
+    result = runner.invoke(
+        app,
+        [
+            "index",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+            "--plugins",
+            "python",
+            "--parse-unreferenced",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    result2 = runner.invoke(
+        app,
+        [
+            "query",
+            "find",
+            "mod.py",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
+    assert result2.exit_code == 0, result2.output
+    assert "py_func:pkg/mod.py:f" in result2.output
+
+
 def test_index_single_file(tmp_path: Path) -> None:
     f = tmp_path / "single.nix"
     f.write_text("{ options.foo = lib.mkOption {}; }")

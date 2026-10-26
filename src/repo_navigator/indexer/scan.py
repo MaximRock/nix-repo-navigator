@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -16,6 +17,10 @@ from repo_navigator.config import Config
 from repo_navigator.graph.builder import GraphBuilder, _edge_id
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
+from repo_navigator.indexer.hash_engine import ast_hash, content_hash, merkle_hash
+from repo_navigator.models.edges import EdgeType
+from repo_navigator.models.file_state import FileState
+from repo_navigator.models.queries import ParseResult
 from repo_navigator.parsers.registry import (
     get_parser_for_file,
     parse_failure_count,
@@ -155,7 +160,7 @@ def index_repo(
     is_single_file = root.is_file()
     builder = GraphBuilder(db, nx_graph)
 
-    items: list[tuple[str, object]] = []  # (rel_path, ParseResult)
+    items: list[tuple[str, ParseResult, str]] = []  # (rel_path, ParseResult, content_hash)
 
     if is_single_file:
         # Single-file explicit request: no two-pass needed.
@@ -167,7 +172,7 @@ def index_repo(
         nix_items = _parse_files(root, nix_files, is_single_file=False)
         items.extend(nix_items)
         builder.build_all(
-            [(Path(p), pr) for p, pr in nix_items],  # type: ignore[arg-type]
+            [(Path(p), pr) for p, pr, _ in nix_items],
             increment_generation=False,
         )
 
@@ -181,20 +186,25 @@ def index_repo(
     # Purge stale files (previously indexed but no longer on disk).
     if not is_single_file:
         old_paths = {n.path for n in db.get_all_nodes() if n.path is not None}
-        new_paths = {rel for rel, _ in items}
+        new_paths = {rel for rel, _, _ in items}
         stale_paths = old_paths - new_paths
         if stale_paths:
             _purge_paths(db, nx_graph, stale_paths)
+        _purge_file_states(db, new_paths)
 
     # Build the plugin pass and bump generation exactly once at the end.
     if is_single_file:
-        builder.build_all([(Path(p), pr) for p, pr in items])  # type: ignore[arg-type]
+        builder.build_all(
+            [(Path(p), pr) for p, pr, _ in items]
+        )
     else:
         builder.build_all(
-            [(Path(p), pr) for p, pr in plugin_items],  # type: ignore[arg-type]
+            [(Path(p), pr) for p, pr, _ in plugin_items],
             increment_generation=False,
         )
         db.inc_generation_id()
+
+    _write_file_states(db, items)
 
     # Flake inputs (if flake.lock exists)
     _index_flake_inputs(root, db, nx_graph)
@@ -221,9 +231,9 @@ def index_repo(
 
 def _parse_files(
     root: Path, files: list[Path], is_single_file: bool
-) -> list[tuple[str, object]]:
-    """Parse *files* into ``(rel_path, ParseResult)`` pairs for *root*."""
-    items: list[tuple[str, object]] = []
+) -> list[tuple[str, ParseResult, str]]:
+    """Parse *files* into ``(rel_path, ParseResult, content_hash)`` triples."""
+    items: list[tuple[str, ParseResult, str]] = []
     for abs_path in files:
         if is_single_file:
             try:
@@ -241,8 +251,79 @@ def _parse_files(
             log.warning("Skipping unreadable file %s: %s", abs_path, exc)
             continue
         parse_result = safe_parse(Path(rel), content)
-        items.append((rel, parse_result))
+        items.append((rel, parse_result, content_hash(content)))
     return items
+
+
+def _write_file_states(
+    db: Database, items: list[tuple[str, ParseResult, str]]
+) -> None:
+    """Persist ``file_state`` rows for a bulk index.
+
+    Merkle hashes are computed bottom-up over ``imports`` edges so that a
+    later incremental update can diff a single file without a full rescan.
+    """
+    if not items:
+        return
+    ast_hashes = {rel: ast_hash(pr) for rel, pr, _ in items}
+    deps: dict[str, list[str]] = {rel: [] for rel, _, _ in items}
+    for edge in db.get_all_edges():
+        if edge.type != EdgeType.imports:
+            continue
+        if not (edge.source.startswith("nix:") and edge.target.startswith("nix:")):
+            continue
+        source = edge.source.removeprefix("nix:")
+        target = edge.target.removeprefix("nix:")
+        if source in deps and target in deps:
+            deps[source].append(target)
+
+    merkle: dict[str, str] = {}
+    visiting: set[str] = set()
+
+    def compute(path: str) -> str:
+        if path in merkle:
+            return merkle[path]
+        if path in visiting:
+            # ponytail: import cycle uses the ast hash; cascade still marks
+            # every member dirty on change.
+            return ast_hashes[path]
+        visiting.add(path)
+        dep_hashes = [compute(dep) for dep in deps.get(path, [])]
+        visiting.discard(path)
+        value = merkle_hash(ast_hashes[path], dep_hashes)
+        merkle[path] = value
+        return value
+
+    now = datetime.now(UTC)
+    for rel, _, digest in items:
+        parser = get_parser_for_file(rel)
+        db.upsert_file_state(
+            FileState(
+                path=rel,
+                lang=parser.language if parser is not None else "unknown",
+                content_hash=digest,
+                ast_hash=ast_hashes[rel],
+                merkle_hash=compute(rel),
+                dirty=False,
+                last_parsed=now,
+                detail_level="full",
+            )
+        )
+
+
+def _purge_file_states(db: Database, keep: set[str]) -> None:
+    """Drop ``file_state`` rows for files that are no longer indexed."""
+    existing = {
+        row[0] for row in db._conn.execute("SELECT path FROM file_state").fetchall()
+    }
+    stale = existing - keep
+    if not stale:
+        return
+    placeholders = ",".join("?" for _ in stale)
+    with db._lock, db.transaction():
+        db._conn.execute(
+            f"DELETE FROM file_state WHERE path IN ({placeholders})", tuple(stale)
+        )
 
 
 def _index_flake_inputs(root: Path, db: Database, nx_graph: NxGraph) -> None:
@@ -384,7 +465,7 @@ def _index_flake_input_edges(
             log.debug("nx_graph edge delta failed", exc_info=True)
 
 
-def _purge_paths(db: Database, nx_graph: NxGraph, stale_paths: set[str | None]) -> None:
+def _purge_paths(db: Database, nx_graph: NxGraph, stale_paths: set[str]) -> None:
     """Remove graph sub-graphs for deleted files."""
     stale = {p for p in stale_paths if p is not None}
     if not stale:

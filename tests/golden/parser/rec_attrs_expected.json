@@ -1,6 +1,7 @@
 {
   "attrs": [
     {
+      "line": 1,
       "name": "a",
       "value": {
         "type": "Literal",
@@ -9,6 +10,7 @@
       }
     },
     {
+      "line": 1,
       "name": "b",
       "value": {
         "left": {

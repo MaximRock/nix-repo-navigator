@@ -2,6 +2,7 @@
   "arg": {
     "attrs": [
       {
+        "line": 1,
         "name": "type",
         "value": {
           "base": null,

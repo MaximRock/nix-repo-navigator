@@ -4,7 +4,9 @@
     {
       "id": "nix:flake_parts.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "flake_parts.nix",
       "path": "flake_parts.nix",
       "type": "nix_module"

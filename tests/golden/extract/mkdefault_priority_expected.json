@@ -15,7 +15,9 @@
     {
       "id": "nix:mkdefault_priority.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "mkdefault_priority.nix",
       "path": "mkdefault_priority.nix",
       "type": "nix_module"

@@ -10,6 +10,10 @@ from repo_navigator.models.queries import ParseResult
 from repo_navigator.parsers.nix.ast_extract import ExtractedNix
 
 
+def _line_meta(line: int) -> dict[str, int]:
+    return {"line": line} if line else {}
+
+
 def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
     """Convert *extracted* metadata into graph-ready nodes and edges."""
     path_str = str(file_path)
@@ -24,6 +28,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
             name=path_str,
             path=path_str,
             lang="nix",
+            metadata={"line": 1},
         )
     )
 
@@ -71,6 +76,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                     "default": _meta_str(opt.default),
                     "example": _meta_str(opt.example),
                     "description": opt.description or "",
+                    **_line_meta(opt.line),
                 },
             )
         )
@@ -111,7 +117,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                 name=f"specialisation.{spec.name}",
                 path=path_str,
                 lang="nix",
-                metadata={"specialisation": spec.name},
+                metadata={"specialisation": spec.name, **_line_meta(spec.line)},
             )
         )
         edges.append(
@@ -132,6 +138,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                 name=arg.name,
                 path=path_str,
                 lang="nix",
+                metadata=_line_meta(arg.line),
             )
         )
         edges.append(
@@ -153,6 +160,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                     name=hf.target,
                     path=path_str,
                     lang="nix",
+                    metadata=_line_meta(hf.line),
                 )
             )
         edges.append(
@@ -174,6 +182,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                     name=pkg.attribute,
                     path=path_str,
                     lang="nix",
+                    metadata=_line_meta(pkg.line),
                 )
             )
         edges.append(
@@ -195,7 +204,7 @@ def parse_module(file_path: Path | str, extracted: ExtractedNix) -> ParseResult:
                     name=func.name,
                     path=path_str,
                     lang="nix",
-                    metadata={"args": func.args},
+                    metadata={"args": func.args, **_line_meta(func.line)},
                 )
             )
             edges.append(

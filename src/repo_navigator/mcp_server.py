@@ -65,13 +65,25 @@ def create_mcp_server(
             g.rebuild(nodes=nodes, edges=edges)
         engine = QueryEngine(db, g, config=cfg)
 
-    server = MCPServer("repo-navigator")
+    server = MCPServer(
+        "repo-navigator",
+        instructions=(
+            "NixOS/home-manager knowledge graph for this repository. For "
+            "questions about modules, options, imports, packages or change "
+            "impact, call find_symbol first, then observe/summarize_module/"
+            "impact_analysis. Use grep/read when no node matches or full "
+            "source text is needed."
+        ),
+    )
 
     # ---------------------------------------------------------------- tools
 
     @server.tool()
     def repo_navigator_observe(node_id: str, depth: int = 1) -> dict[str, Any]:
-        """Observe direct neighbourhood of a node.
+        """Direct neighbourhood of a node: edges plus adjacent nodes.
+
+        Use after ``find_symbol`` to see what a module imports, declares,
+        configures or generates before reading the file.
 
         Args:
             node_id: Node ID (e.g. ``nix:a.nix`` or ``nix_option:services.foo.enable``).
@@ -186,7 +198,11 @@ def create_mcp_server(
         limit: int = 10,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Full-text search for symbols with optional structural filters.
+        """Find symbols by name or id. Start here for "where is X" questions.
+
+        Returns node dicts (ids, types, paths, line, snippet) — follow with
+        ``repo_navigator_observe`` or ``repo_navigator_summarize_module``
+        to see relationships. Use grep only when no node matches.
 
         Args:
             query: Search query.
@@ -215,7 +231,9 @@ def create_mcp_server(
 
     @server.tool()
     def repo_navigator_summarize_module(path: str) -> dict[str, Any]:
-        """Summarize a module.
+        """Whole-module overview: in/out edges and key symbols.
+
+        Cheaper than reading a Nix module; use it before opening the file.
 
         Args:
             path: Module path (e.g. ``a.nix``).
@@ -266,7 +284,9 @@ def create_mcp_server(
     def repo_navigator_impact_analysis(
         node_id: str, max_depth: int = 5
     ) -> dict[str, Any]:
-        """Impact analysis for a node.
+        """What a change to this node would affect: modules, options, files.
+
+        Call before editing a shared module or option.
 
         Args:
             node_id: Node ID.

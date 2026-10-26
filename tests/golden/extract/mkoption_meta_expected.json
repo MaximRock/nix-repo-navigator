@@ -19,7 +19,9 @@
     {
       "id": "nix:mkoption_meta.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "mkoption_meta.nix",
       "path": "mkoption_meta.nix",
       "type": "nix_module"
@@ -31,6 +33,7 @@
         "default": "False",
         "description": "Whether to enable foo.",
         "example": "True",
+        "line": 3,
         "opt_type": "types.bool"
       },
       "name": "services.foo.enable",
@@ -44,6 +47,7 @@
         "default": "8080",
         "description": "Port for foo.",
         "example": "",
+        "line": 9,
         "opt_type": "types.port"
       },
       "name": "services.foo.port",

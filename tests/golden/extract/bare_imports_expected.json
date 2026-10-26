@@ -52,7 +52,9 @@
     {
       "id": "nix:bare_imports.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "bare_imports.nix",
       "path": "bare_imports.nix",
       "type": "nix_module"
@@ -63,7 +65,8 @@
       "metadata": {
         "args": [
           "hostPath"
-        ]
+        ],
+        "line": 10
       },
       "name": "mkNixosConfiguration",
       "path": "bare_imports.nix",

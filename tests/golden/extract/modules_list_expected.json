@@ -62,7 +62,9 @@
     {
       "id": "nix:modules_list.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "modules_list.nix",
       "path": "modules_list.nix",
       "type": "nix_module"
@@ -74,7 +76,8 @@
         "args": [
           "hostName",
           "hostPath"
-        ]
+        ],
+        "line": 8
       },
       "name": "mkNixosConfiguration",
       "path": "modules_list.nix",

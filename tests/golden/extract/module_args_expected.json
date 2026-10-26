@@ -19,7 +19,9 @@
     {
       "id": "nix:module_args.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "module_args.nix",
       "path": "module_args.nix",
       "type": "nix_module"
@@ -27,7 +29,9 @@
     {
       "id": "nix_function:module_args.nix:myLib",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 2
+      },
       "name": "myLib",
       "path": "module_args.nix",
       "type": "nix_function"
@@ -35,7 +39,9 @@
     {
       "id": "nix_function:module_args.nix:myFunc",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 3
+      },
       "name": "myFunc",
       "path": "module_args.nix",
       "type": "nix_function"

@@ -19,7 +19,9 @@
     {
       "id": "nix:home_file.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "home_file.nix",
       "path": "home_file.nix",
       "type": "nix_module"
@@ -27,7 +29,9 @@
     {
       "id": "file:.config/foo",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 2
+      },
       "name": ".config/foo",
       "path": "home_file.nix",
       "type": "file"
@@ -35,7 +39,9 @@
     {
       "id": "file:.config/bar",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 3
+      },
       "name": ".config/bar",
       "path": "home_file.nix",
       "type": "file"

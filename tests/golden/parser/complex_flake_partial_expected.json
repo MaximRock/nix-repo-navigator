@@ -1,6 +1,7 @@
 {
   "bindings": [
     {
+      "line": 0,
       "name": "args",
       "value": {
         "base": null,
@@ -32,6 +33,7 @@
     "body": {
       "attrs": [
         {
+          "line": 3,
           "name": "imports",
           "value": {
             "items": [
@@ -45,14 +47,17 @@
           }
         },
         {
+          "line": 4,
           "name": "options",
           "value": {
             "attrs": [
               {
+                "line": 4,
                 "name": "test",
                 "value": {
                   "attrs": [
                     {
+                      "line": 4,
                       "name": "enable",
                       "value": {
                         "arg": {
@@ -82,11 +87,13 @@
           }
         },
         {
+          "line": 5,
           "name": "config",
           "value": {
             "arg": {
               "attrs": [
                 {
+                  "line": 6,
                   "name": "\u2026",
                   "value": {
                     "reason": "dynamic_key",
@@ -95,18 +102,22 @@
                   }
                 },
                 {
+                  "line": 7,
                   "name": "nested",
                   "value": {
                     "attrs": [
                       {
+                        "line": 7,
                         "name": "a",
                         "value": {
                           "attrs": [
                             {
+                              "line": 7,
                               "name": "b",
                               "value": {
                                 "attrs": [
                                   {
+                                    "line": 7,
                                     "name": "c",
                                     "value": {
                                       "type": "Literal",

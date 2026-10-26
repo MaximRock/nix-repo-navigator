@@ -14,7 +14,9 @@
     {
       "id": "nix:config_set.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "config_set.nix",
       "path": "config_set.nix",
       "type": "nix_module"

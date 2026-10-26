@@ -57,6 +57,8 @@ class Node(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     content_hash: str | None = None
     ast_hash: str | None = None
+    line: int | None = None
+    snippet: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

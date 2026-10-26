@@ -588,15 +588,17 @@ class Database:
 
 
 def _row_to_node(row: sqlite3.Row) -> Node:
+    metadata = json.loads(row["metadata"] or "{}")
     return Node(
         id=row["id"],
         type=NodeType(row["type"]),
         name=row["name"],
         path=row["path"],
         lang=row["lang"],
-        metadata=json.loads(row["metadata"] or "{}"),
+        metadata=metadata,
         content_hash=row["content_hash"],
         ast_hash=row["ast_hash"],
+        line=metadata.get("line"),
         created_at=_dt_from_str(row["created_at"]) or datetime.now(UTC),
         updated_at=_dt_from_str(row["updated_at"]) or datetime.now(UTC),
     )

@@ -19,7 +19,9 @@
     {
       "id": "nix:home_packages.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "home_packages.nix",
       "path": "home_packages.nix",
       "type": "nix_module"

@@ -1,5 +1,5 @@
 {
-  "db_size_bytes": 155648,
+  "db_size_bytes": 167936,
   "generation": 1,
   "nodes": 98,
   "edges": 65,
@@ -28,7 +28,7 @@
   "dangling_targets": 16,
   "option_values": {},
   "option_errors": 0,
-  "file_state_rows": 0,
+  "file_state_rows": 62,
   "file_state_dirty": 0,
   "flake_inputs": 4,
   "flake_inputs_without_rev": 0,

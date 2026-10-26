@@ -1,14 +1,17 @@
 {
   "attrs": [
     {
+      "line": 1,
       "name": "a",
       "value": {
         "attrs": [
           {
+            "line": 1,
             "name": "b",
             "value": {
               "attrs": [
                 {
+                  "line": 1,
                   "name": "c",
                   "value": {
                     "type": "Literal",

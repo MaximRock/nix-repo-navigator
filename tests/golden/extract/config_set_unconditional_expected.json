@@ -23,7 +23,9 @@
     {
       "id": "nix:config_set_unconditional.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "config_set_unconditional.nix",
       "path": "config_set_unconditional.nix",
       "type": "nix_module"

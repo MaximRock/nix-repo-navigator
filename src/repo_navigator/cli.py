@@ -29,6 +29,17 @@ query_app = typer.Typer(
 app.add_typer(query_app, name="query")
 
 
+def _plugin_kwargs(
+    plugins: str | None, parse_unreferenced: bool | None
+) -> dict[str, object]:
+    kwargs: dict[str, object] = {}
+    if plugins is not None:
+        kwargs["plugins"] = [p.strip() for p in plugins.split(",") if p.strip()]
+    if parse_unreferenced is not None:
+        kwargs["parse_unreferenced"] = parse_unreferenced
+    return kwargs
+
+
 @app.command()
 def start(
     root: Path | None = typer.Option(None, help="Repository root (default: cwd)."),
@@ -58,10 +69,7 @@ def start(
     from repo_navigator.mcp_server import create_mcp_server
 
     kwargs: dict[str, object] = {"root": root or Path.cwd(), "db_path": db_path}
-    if plugins is not None:
-        kwargs["plugins"] = [p.strip() for p in plugins.split(",") if p.strip()]
-    if parse_unreferenced is not None:
-        kwargs["parse_unreferenced"] = parse_unreferenced
+    kwargs.update(_plugin_kwargs(plugins, parse_unreferenced))
 
     cfg = Config(**kwargs)  # type: ignore[arg-type]
     configure_logging(cfg.log_level, cfg.resolved_db_path.parent)
@@ -114,9 +122,23 @@ def refresh(
     db_path: Path | None = typer.Option(
         None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
     ),
+    plugins: str | None = typer.Option(
+        None,
+        help=(
+            "Comma-separated plugin languages to enable (e.g. python,kdl). "
+            "Overrides REPO_NAVIGATOR_PLUGINS."
+        ),
+    ),
+    parse_unreferenced: bool | None = typer.Option(
+        None,
+        help=(
+            "Parse every enabled-plugin file even when not referenced by Nix "
+            "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
+        ),
+    ),
 ) -> None:
     """Force a full rescan (alias for index)."""
-    _run_index(root or Path.cwd(), db_path)
+    _run_index(root or Path.cwd(), db_path, plugins, parse_unreferenced)
 
 
 @app.command("index")
@@ -125,9 +147,23 @@ def index_cmd(
     db_path: Path | None = typer.Option(
         None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
     ),
+    plugins: str | None = typer.Option(
+        None,
+        help=(
+            "Comma-separated plugin languages to enable (e.g. python,kdl). "
+            "Overrides REPO_NAVIGATOR_PLUGINS."
+        ),
+    ),
+    parse_unreferenced: bool | None = typer.Option(
+        None,
+        help=(
+            "Parse every enabled-plugin file even when not referenced by Nix "
+            "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
+        ),
+    ),
 ) -> None:
     """Index a repository (or single file) into the graph."""
-    _run_index(path, db_path)
+    _run_index(path, db_path, plugins, parse_unreferenced)
 
 
 @app.command("report")
@@ -161,9 +197,23 @@ def watch_cmd(
     db_path: Path | None = typer.Option(
         None, help="SQLite DB path (default: <root>/.repo-navigator/repo-navigator.db)."
     ),
+    plugins: str | None = typer.Option(
+        None,
+        help=(
+            "Comma-separated plugin languages to enable (e.g. python,kdl). "
+            "Overrides REPO_NAVIGATOR_PLUGINS."
+        ),
+    ),
+    parse_unreferenced: bool | None = typer.Option(
+        None,
+        help=(
+            "Parse every enabled-plugin file even when not referenced by Nix "
+            "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
+        ),
+    ),
 ) -> None:
     """Watch a repository for changes and incrementally update the graph."""
-    asyncio.run(_run_watch(path, db_path))
+    asyncio.run(_run_watch(path, db_path, plugins, parse_unreferenced))
 
 
 @dev_app.command("watch")
@@ -181,7 +231,12 @@ def _ensure_db_dir(db_file: Path) -> None:
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _run_index(path: Path, db_path: Path | None) -> None:
+def _run_index(
+    path: Path,
+    db_path: Path | None,
+    plugins: str | None = None,
+    parse_unreferenced: bool | None = None,
+) -> None:
     from repo_navigator.config import Config
     from repo_navigator.graph.builder import GraphBuilder
     from repo_navigator.graph.db import Database
@@ -206,7 +261,11 @@ def _run_index(path: Path, db_path: Path | None) -> None:
             cfg_root = p.parent.resolve()
             rel = p.name
 
-        cfg = Config(root=cfg_root, db_path=db_path)  # type: ignore[arg-type]
+        cfg = Config(
+            root=cfg_root,
+            db_path=db_path,
+            **_plugin_kwargs(plugins, parse_unreferenced),  # type: ignore[arg-type]
+        )
         db_file = cfg.resolved_db_path
         _ensure_db_dir(db_file)
         configure_logging(cfg.log_level, db_file.parent, reset=True)
@@ -235,7 +294,11 @@ def _run_index(path: Path, db_path: Path | None) -> None:
 
     # Directory: full repo index
     cfg_root = p.resolve()
-    cfg = Config(root=cfg_root, db_path=db_path)  # type: ignore[arg-type]
+    cfg = Config(
+        root=cfg_root,
+        db_path=db_path,
+        **_plugin_kwargs(plugins, parse_unreferenced),  # type: ignore[arg-type]
+    )
     db_file = cfg.resolved_db_path
     _ensure_db_dir(db_file)
     configure_logging(cfg.log_level, db_file.parent, reset=True)
@@ -260,7 +323,12 @@ def _run_index(path: Path, db_path: Path | None) -> None:
         db.close()
 
 
-async def _run_watch(path: Path, db_path: Path | None) -> None:
+async def _run_watch(
+    path: Path,
+    db_path: Path | None,
+    plugins: str | None = None,
+    parse_unreferenced: bool | None = None,
+) -> None:
     from repo_navigator.config import Config
     from repo_navigator.graph.builder import GraphBuilder
     from repo_navigator.graph.db import Database
@@ -271,7 +339,11 @@ async def _run_watch(path: Path, db_path: Path | None) -> None:
     from repo_navigator.watcher.filesystem import RepoWatcher
 
     root = Path(path).resolve()
-    cfg = Config(root=root, db_path=db_path)  # type: ignore[arg-type]
+    cfg = Config(
+        root=root,
+        db_path=db_path,
+        **_plugin_kwargs(plugins, parse_unreferenced),  # type: ignore[arg-type]
+    )
     db_file = cfg.resolved_db_path
     _ensure_db_dir(db_file)
     configure_logging(cfg.log_level, db_file.parent, reset=True)

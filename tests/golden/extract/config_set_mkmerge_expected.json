@@ -23,7 +23,9 @@
     {
       "id": "nix:config_set_mkmerge.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "config_set_mkmerge.nix",
       "path": "config_set_mkmerge.nix",
       "type": "nix_module"

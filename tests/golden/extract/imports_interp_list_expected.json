@@ -35,7 +35,9 @@
     {
       "id": "nix:imports_interp_list.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "imports_interp_list.nix",
       "path": "imports_interp_list.nix",
       "type": "nix_module"

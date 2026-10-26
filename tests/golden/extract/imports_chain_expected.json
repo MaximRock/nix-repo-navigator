@@ -25,7 +25,9 @@
     {
       "id": "nix:imports_chain.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "imports_chain.nix",
       "path": "imports_chain.nix",
       "type": "nix_module"

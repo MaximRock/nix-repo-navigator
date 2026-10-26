@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import time
 from collections import defaultdict, deque
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,30 @@ def _dangling_node(target_id: str) -> Node:
     assert node is not None  # the fallback branch always returns a Node
     node.metadata = {**node.metadata, "dangling": True}
     return node
+
+
+def _read_snippet(root: Path | None, node: Node, context: int = 2) -> str | None:
+    """Short source excerpt around ``node.line``; None when unknown."""
+    if root is None or not node.path or not node.line or node.line < 1:
+        return None
+    try:
+        lines = (root / node.path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if node.line > len(lines):
+        return None
+    start = max(0, node.line - 1 - context)
+    end = min(len(lines), node.line + context)
+    return "\n".join(lines[start:end])[:240]
+
+
+def _attach_snippets(root: Path | None, nodes: Iterable[Node]) -> None:
+    for node in nodes:
+        if node.line is None:
+            value = node.metadata.get("line")
+            node.line = value if isinstance(value, int) else None
+        if node.line and node.snippet is None:
+            node.snippet = _read_snippet(root, node)
 
 
 class QueryEngine:
@@ -99,6 +124,7 @@ class QueryEngine:
                 root = Path(config.root)
             except Exception:
                 root = None
+        self.root = root
         self.eval_cache = EvalCache(db, root=root)
 
     # ------------------------------------------------------------------ cache
@@ -231,7 +257,13 @@ class QueryEngine:
                         )
                     if len(neighbors) >= 20:
                         break
-                return Observation(node=node, neighbors=neighbors, generation_id=gen)
+                observation = Observation(
+                    node=node, neighbors=neighbors, generation_id=gen
+                )
+                _attach_snippets(
+                    self.root, [observation.node, *(nb.node for nb in neighbors)]
+                )
+                return observation
 
             # depth >1: BFS via NxGraph
             g = self.nx_graph.get_graph_readonly()
@@ -540,6 +572,7 @@ class QueryEngine:
             self._note_query("find_symbol", self._cache[key])
             return self._cache[key]
         result = _compute()
+        _attach_snippets(self.root, result)
         if len(self._cache) >= 128:
             self._cache.pop(next(iter(self._cache)))
         self._cache[key] = result

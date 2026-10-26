@@ -14,7 +14,9 @@
     {
       "id": "nix:unresolved_interp.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "unresolved_interp.nix",
       "path": "unresolved_interp.nix",
       "type": "nix_module"

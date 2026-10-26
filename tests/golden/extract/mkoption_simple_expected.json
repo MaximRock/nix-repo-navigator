@@ -12,7 +12,9 @@
     {
       "id": "nix:mkoption_simple.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "mkoption_simple.nix",
       "path": "mkoption_simple.nix",
       "type": "nix_module"
@@ -24,6 +26,7 @@
         "default": "",
         "description": "",
         "example": "",
+        "line": 2,
         "opt_type": "types.bool"
       },
       "name": "services.foo.enable",

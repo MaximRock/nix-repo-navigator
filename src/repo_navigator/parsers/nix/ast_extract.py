@@ -407,7 +407,9 @@ def _process(
             _process_programs(value, result, conditional, let_env, _prefix)
             continue
 
-        _emit_generic_attr(name, value, result, conditional, _prefix, let_env)
+        _emit_generic_attr(
+            name, value, result, conditional, _prefix, let_env, line=attr.line
+        )
 
 
 def _emit_generic_attr(
@@ -417,6 +419,7 @@ def _emit_generic_attr(
     conditional: bool,
     prefix: tuple[str, ...] = (),
     let_env: dict[str, Expr] | None = None,
+    line: int = 0,
 ) -> None:
     """Record a plain assignment under an unhandled attrpath as an option set.
 
@@ -448,7 +451,7 @@ def _emit_generic_attr(
                 value_expr=ast_to_dict(inner),
                 conditional=True,
                 priority=priority,
-                line=getattr(value, "line", 0) or 0,
+                line=0,
             )
         )
         return
@@ -462,6 +465,7 @@ def _emit_generic_attr(
             FunctionDecl(
                 name=name,
                 args=_formal_names(value.arg),
+                line=line,
             )
         )
         return
@@ -473,7 +477,7 @@ def _emit_generic_attr(
             value_expr=ast_to_dict(inner),
             conditional=conditional,
             priority=priority,
-            line=getattr(value, "line", 0) or 0,
+            line=0,
         )
     )
 
@@ -717,6 +721,7 @@ def _process_options(value: Expr, result: ExtractedNix, conditional: bool) -> No
                         default=meta.get("default"),
                         example=meta.get("example"),
                         description=meta.get("description"),
+                        line=opt_attr.line,
                     )
                 )
             elif short == "mkEnableOption" and func_args:
@@ -729,6 +734,7 @@ def _process_options(value: Expr, result: ExtractedNix, conditional: bool) -> No
                         type="types.bool",
                         default="false",
                         description=desc,
+                        line=opt_attr.line,
                     )
                 )
 
@@ -770,6 +776,7 @@ def _walk_options_recursive(
                         default=meta.get("default"),
                         example=meta.get("example"),
                         description=meta.get("description"),
+                        line=attr.line,
                     )
                 )
                 continue
@@ -783,6 +790,7 @@ def _walk_options_recursive(
                         type="types.bool",
                         default="false",
                         description=desc,
+                        line=attr.line,
                     )
                 )
                 continue
@@ -930,9 +938,11 @@ def _process_module_args(value: Expr, result: ExtractedNix) -> None:
         if attr.name == "args" and isinstance(attr.value, AttrSet):
             for arg_attr in attr.value.attrs:
                 if isinstance(arg_attr.name, str):
-                    result.module_args.append(ModuleArg(name=arg_attr.name))
+                    result.module_args.append(
+                        ModuleArg(name=arg_attr.name, line=arg_attr.line)
+                    )
         elif attr.name != "args":
-            result.module_args.append(ModuleArg(name=attr.name))
+            result.module_args.append(ModuleArg(name=attr.name, line=attr.line))
 
 
 def _process_home(
@@ -1001,6 +1011,7 @@ def _process_home_file(attrs: AttrSet, result: ExtractedNix) -> None:
                     result.home_files.append(
                         HomeFile(
                             target=target_attr.name,
+                            line=target_attr.line,
                             source=_literal_value(src_attr.value)
                             if src_attr.value
                             else None,

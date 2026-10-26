@@ -19,7 +19,9 @@
     {
       "id": "nix:specialisation.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "specialisation.nix",
       "path": "specialisation.nix",
       "type": "nix_module"

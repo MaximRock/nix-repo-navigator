@@ -15,7 +15,9 @@
     {
       "id": "nix:mkforce_priority.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "mkforce_priority.nix",
       "path": "mkforce_priority.nix",
       "type": "nix_module"

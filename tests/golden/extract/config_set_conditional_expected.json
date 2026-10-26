@@ -14,7 +14,9 @@
     {
       "id": "nix:config_set_conditional.nix",
       "lang": "nix",
-      "metadata": {},
+      "metadata": {
+        "line": 1
+      },
       "name": "config_set_conditional.nix",
       "path": "config_set_conditional.nix",
       "type": "nix_module"

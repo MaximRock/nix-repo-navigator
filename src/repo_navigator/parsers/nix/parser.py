@@ -67,6 +67,7 @@ class Inherit(BaseModel):
 class AttrDef(BaseModel):
     name: Union[str, Inherit]
     value: Union["Expr", None] = None
+    line: int = 0
 
 
 class List(Expr):
@@ -611,15 +612,16 @@ class _Parser:
             if tok.type == TokenType.KW_INHERIT:
                 attrs.append(self._parse_inherit())
                 continue
+            line = tok.line
             segments = self._parse_attrpath_segments()
             self._expect(TokenType.EQ)
             value = self._parse_expr()
             self._expect(TokenType.SEMI)
-            attrs.append(self._expand_attrpath(segments, value))
+            attrs.append(self._expand_attrpath(segments, value, line))
         return attrs
 
     def _parse_inherit(self) -> AttrDef:
-        self._expect(TokenType.KW_INHERIT)
+        kw = self._expect(TokenType.KW_INHERIT)
         from_expr: Expr | None = None
         if (tok := self._peek()) is not None and tok.type == TokenType.LPAREN:
             self._next()
@@ -629,7 +631,9 @@ class _Parser:
         while (tok := self._peek()) is not None and tok.type == TokenType.IDENT:
             names.append(self._next().value)
         self._expect(TokenType.SEMI)
-        return AttrDef(name=Inherit(from_=from_expr, names=names), value=None)
+        return AttrDef(
+            name=Inherit(from_=from_expr, names=names), value=None, line=kw.line
+        )
 
     def _parse_attrpath_segments(self) -> list[tuple[str, str]]:
         """Return list of (kind, value) where kind in {'name','dyn'}."""
@@ -686,18 +690,28 @@ class _Parser:
         path = names + (["…"] if dyn else [])
         return Select(base=base, path=path)
 
-    def _expand_attrpath(self, segments: list[tuple[str, str]], value: Expr) -> AttrDef:
+    def _expand_attrpath(
+        self, segments: list[tuple[str, str]], value: Expr, line: int = 0
+    ) -> AttrDef:
         names = [v for k, v in segments if k == "name"]
         dynamic = any(k == "dyn" for k, _ in segments)
         if dynamic:
             joined = ".".join(names + ["…"])
-            return AttrDef(name=joined, value=UnresolvedExpr(source=joined, reason="dynamic_key"))
+            return AttrDef(
+                name=joined,
+                value=UnresolvedExpr(source=joined, reason="dynamic_key"),
+                line=line,
+            )
         if len(names) == 1:
-            return AttrDef(name=names[0], value=value)
+            return AttrDef(name=names[0], value=value, line=line)
         # Build nested AttrSet: a.b.c = v  ->  a = { b = { c = v; }; };
-        inner: AttrDef = AttrDef(name=names[-1], value=value)
+        inner: AttrDef = AttrDef(name=names[-1], value=value, line=line)
         for name in reversed(names[:-1]):
-            inner = AttrDef(name=name, value=AttrSet(recursive=False, attrs=[inner]))
+            inner = AttrDef(
+                name=name,
+                value=AttrSet(recursive=False, attrs=[inner]),
+                line=line,
+            )
         return inner
 
     def _parse_let(self) -> Expr:

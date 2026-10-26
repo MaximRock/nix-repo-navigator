@@ -15,6 +15,7 @@ from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.graph.queries import QueryEngine
 from repo_navigator.indexer.scan import index_repo
+from repo_navigator.indexer.update_engine import UpdateEngine
 from repo_navigator.models.edges import EdgeType
 from repo_navigator.models.nodes import NodeType
 
@@ -481,6 +482,93 @@ def test_e2e_conditional_and_priority(tmp_path: Path) -> None:
     assert any(e.metadata.get("conditional") is True for e in edges)
     # mkForce -> priority 'force' (normalised)
     assert any(e.metadata.get("priority") == "force" for e in edges)
+
+
+def test_e2e_bulk_index_writes_file_state(tmp_path: Path) -> None:
+    _write(tmp_path / "a.nix", "{ imports = [ ./b.nix ]; }")
+    _write(tmp_path / "b.nix", "{ config.x = 1; }")
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    state_a = db.get_file_state("a.nix")
+    state_b = db.get_file_state("b.nix")
+    assert state_a is not None and state_b is not None
+    for state in (state_a, state_b):
+        assert state.content_hash
+        assert state.ast_hash
+        assert state.merkle_hash
+        assert state.dirty is False
+        assert state.detail_level == "full"
+    assert state_a.merkle_hash != state_b.merkle_hash
+
+
+def test_e2e_bulk_state_enables_incremental_cascade(tmp_path: Path) -> None:
+    _write(tmp_path / "a.nix", "{ imports = [ ./b.nix ]; }")
+    _write(tmp_path / "b.nix", "{ config.x = 1; }")
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+    before = db.get_file_state("a.nix")
+    assert before is not None and before.merkle_hash is not None
+
+    _write(tmp_path / "b.nix", "{ config.y = 2; }")
+    engine = UpdateEngine(db, g, root=tmp_path, config=cfg)
+    result = engine.process_file(tmp_path / "b.nix")
+
+    assert result["reason"] == "ast_changed"
+    assert "a.nix" in result["affected"]
+    state_a = db.get_file_state("a.nix")
+    assert state_a is not None and state_a.dirty is True
+    assert state_a.merkle_hash != before.merkle_hash
+
+
+def test_e2e_bulk_index_purges_deleted_file_state(tmp_path: Path) -> None:
+    _write(tmp_path / "a.nix", "{ config.x = 1; }")
+    _write(tmp_path / "b.nix", "{ config.y = 2; }")
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+    assert db.get_file_state("b.nix") is not None
+
+    (tmp_path / "b.nix").unlink()
+    index_repo(tmp_path, db, g, config=cfg)
+    assert db.get_file_state("b.nix") is None
+    assert db.get_file_state("a.nix") is not None
+
+
+def test_e2e_find_symbol_includes_line_and_snippet(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "a.nix",
+        "{ lib, ... }:\n"
+        "{\n"
+        "  options.services.foo.enable = lib.mkOption {\n"
+        "    type = lib.types.bool;\n"
+        "  };\n"
+        "}\n",
+    )
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    q = QueryEngine(db, g, config=cfg)
+    hits = q.find_symbol("services.foo.enable", fuzzy=True)
+    hit = next(h for h in hits if h.id == "nix_option:services.foo.enable")
+    assert hit.line == 3
+    assert hit.snippet is not None and "mkOption" in hit.snippet
+
+    obs = q.observe("nix:a.nix")
+    assert obs.node.line == 1
+    assert obs.node.snippet is not None and "lib" in obs.node.snippet
 
 
 def test_e2e_builder_direct_api(tmp_path: Path) -> None:

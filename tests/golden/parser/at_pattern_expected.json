@@ -1,6 +1,7 @@
 {
   "bindings": [
     {
+      "line": 0,
       "name": "inputs",
       "value": {
         "base": null,
@@ -28,6 +29,7 @@
     "body": {
       "bindings": [
         {
+          "line": 3,
           "name": "x",
           "value": {
             "base": null,
@@ -42,6 +44,7 @@
       "body": {
         "attrs": [
           {
+            "line": 5,
             "name": {
               "from": null,
               "names": [
