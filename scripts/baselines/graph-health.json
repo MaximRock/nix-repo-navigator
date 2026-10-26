@@ -1,0 +1,42 @@
+{
+  "db_size_bytes": 155648,
+  "generation": 1,
+  "nodes": 98,
+  "edges": 65,
+  "nodes_by_type": {
+    "nix_module": 64,
+    "nix_option": 17,
+    "nix_function": 7,
+    "flake_input": 6,
+    "package_ref": 2,
+    "file": 2
+  },
+  "edges_by_type": {
+    "sets": 28,
+    "imports": 16,
+    "declares": 9,
+    "references": 4,
+    "configures": 2,
+    "passes_args": 2,
+    "specialises": 2,
+    "uses_package": 2
+  },
+  "synthetic_nodes": 16,
+  "synthetic_ratio": 0.1633,
+  "dangling_edges": 16,
+  "dangling_sources": 0,
+  "dangling_targets": 16,
+  "option_values": {},
+  "option_errors": 0,
+  "file_state_rows": 0,
+  "file_state_dirty": 0,
+  "flake_inputs": 4,
+  "flake_inputs_without_rev": 0,
+  "parse_errors": 5,
+  "disk_files": 62,
+  "graph_files": 62,
+  "unindexed_files": 0,
+  "unindexed_sample": [],
+  "missing_files": 0,
+  "missing_sample": []
+}

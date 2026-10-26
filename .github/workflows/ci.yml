@@ -28,6 +28,14 @@ jobs:
           pip install -e ".[dev]"
           pip install ruff mypy pytest-cov hatch twine
 
+      - name: Index self (graph health corpus)
+        run: nix-repo-navigator index . --db-path .repo-navigator/repo-navigator.db
+
+      - name: Graph health regression gate
+        run: >-
+          python scripts/mcp_stats.py health --root .
+          --baseline scripts/baselines/graph-health.json --fail-on-regress
+
       - name: Ruff check
         run: ruff check .
 
