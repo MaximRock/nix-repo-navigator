@@ -11,7 +11,7 @@ from repo_navigator.parsers.base import BaseParser
 from repo_navigator.parsers.nix.ast_extract import extract
 from repo_navigator.parsers.nix.module_parser import parse_module
 from repo_navigator.parsers.nix.nix_instantiate import parse_via_nix_instantiate
-from repo_navigator.parsers.registry import register
+from repo_navigator.parsers.registry import record_parse_failure, register
 
 log = logging.getLogger(__name__)
 
@@ -26,18 +26,19 @@ class NixParser(BaseParser):
     def parse(self, path: Path, content: str) -> ParseResult:
         # Empty / comment-only file: nothing to index.
         from repo_navigator.parsers.nix.lexer import tokenize
-        
+
         tokens = tokenize(content)
         if len(tokens) <= 1:  # only EOF
             return ParseResult(nodes=[], edges=[])
         try:
             return self._parse_inner(path, content)
         except Exception:
+            record_parse_failure()
             log.exception("NixParser failed for %s", path)
             return self._fallback(path)
 
     def _parse_inner(self, path: Path, content: str) -> ParseResult:
-        from repo_navigator.parsers.nix.parser import parse, UnresolvedExpr
+        from repo_navigator.parsers.nix.parser import parse
 
         tree = parse(content)
 
@@ -82,7 +83,18 @@ def _count_unresolved(expr: object) -> int:
     if expr.__class__.__name__ == "UnresolvedExpr":
         return 1
     count = 0
-    for attr in ("body", "cond", "then_", "else_", "assertion", "expr", "left", "right", "func", "arg"):
+    for attr in (
+        "body",
+        "cond",
+        "then_",
+        "else_",
+        "assertion",
+        "expr",
+        "left",
+        "right",
+        "func",
+        "arg",
+    ):
         child = getattr(expr, attr, None)
         if child is not None:
             count += _count_unresolved(child)
@@ -107,7 +119,18 @@ def _count_unresolved(expr: object) -> int:
 def _count_nodes(expr: object) -> int:
     """Count all nodes in the AST."""
     count = 1
-    for attr in ("body", "cond", "then_", "else_", "assertion", "expr", "left", "right", "func", "arg"):
+    for attr in (
+        "body",
+        "cond",
+        "then_",
+        "else_",
+        "assertion",
+        "expr",
+        "left",
+        "right",
+        "func",
+        "arg",
+    ):
         child = getattr(expr, attr, None)
         if child is not None:
             count += _count_nodes(child)

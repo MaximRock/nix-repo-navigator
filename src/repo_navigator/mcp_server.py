@@ -380,7 +380,10 @@ async def _run_stdio(config: Config) -> None:
 
 
 def main() -> None:
+    from repo_navigator.logging_setup import configure_logging
+
     config = _parse_args()
+    configure_logging(config.log_level, config.resolved_db_path.parent)
     asyncio.run(_run_stdio(config))
 
 

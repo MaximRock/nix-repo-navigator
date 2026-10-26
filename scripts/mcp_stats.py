@@ -408,7 +408,7 @@ def _parse_error_count(db: Path) -> int:
         text = log.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return 0
-    return sum(1 for line in text.splitlines() if line.strip())
+    return sum(1 for line in text.splitlines() if line[:4].isdigit())
 
 
 def collect_health(
@@ -668,8 +668,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.update_baseline:
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        portable = {
+            key: value
+            for key, value in snapshot.items()
+            if key not in ("root", "db", "generated_at")
+        }
         baseline_path.write_text(
-            json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            json.dumps(portable, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
 
     baseline: dict[str, Any] | None = None

@@ -18,6 +18,7 @@ from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.parsers.registry import (
     get_parser_for_file,
+    parse_failure_count,
     safe_parse,
     should_parse_file,
 )
@@ -132,7 +133,8 @@ def index_repo(
 ) -> dict[str, int | float]:
     """Index *root* into *db* / *nx_graph*.
 
-    Returns a stats dict: ``{"files": ..., "nodes": ..., "edges": ..., "elapsed_ms": ...}``.
+    Returns a stats dict: ``{"files": ..., "nodes": ..., "edges": ...,
+    "parse_errors": ..., "elapsed_ms": ...}``.
     The graph is fully replaced for every discovered file (via
     ``GraphBuilder.build_all``) and stale file nodes (deleted from
     filesystem) are purged.
@@ -145,6 +147,7 @@ def index_repo(
     """
     root = Path(root).resolve()
     start = time.monotonic()
+    failures_before = parse_failure_count()
 
     # Ensure DB is ready.
     db.init_db()
@@ -211,6 +214,7 @@ def index_repo(
         "nodes": db.count_nodes(),
         "edges": db.count_edges(),
         "generation": db.get_generation_id(),
+        "parse_errors": parse_failure_count() - failures_before,
         "elapsed_ms": elapsed_ms,
     }
 

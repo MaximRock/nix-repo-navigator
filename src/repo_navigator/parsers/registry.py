@@ -29,6 +29,7 @@ class LanguageConfig:
 
 
 _registry: dict[str, BaseParser] = {}
+_parse_failures = 0
 
 
 def register(parser: BaseParser) -> None:
@@ -159,6 +160,17 @@ def should_parse_file(
     return False
 
 
+def parse_failure_count() -> int:
+    """Number of parser exceptions isolated since process start."""
+    return _parse_failures
+
+
+def record_parse_failure() -> None:
+    """Bump the counter; call from every site that swallows a parser error."""
+    global _parse_failures
+    _parse_failures += 1
+
+
 def safe_parse(path: Path, content: str) -> ParseResult:
     """Parse *path* via the registry, isolating parser exceptions.
 
@@ -172,6 +184,7 @@ def safe_parse(path: Path, content: str) -> ParseResult:
     try:
         return parser.parse(path, content)
     except Exception:
+        record_parse_failure()
         log.exception("Parser %s failed for %s", parser.language, path)
         fallback_id = f"file:{path}"
         return ParseResult(

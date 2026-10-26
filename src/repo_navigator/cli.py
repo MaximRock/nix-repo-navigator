@@ -54,6 +54,7 @@ def start(
     import asyncio
 
     from repo_navigator.config import Config
+    from repo_navigator.logging_setup import configure_logging
     from repo_navigator.mcp_server import create_mcp_server
 
     kwargs: dict[str, object] = {"root": root or Path.cwd(), "db_path": db_path}
@@ -63,6 +64,7 @@ def start(
         kwargs["parse_unreferenced"] = parse_unreferenced
 
     cfg = Config(**kwargs)  # type: ignore[arg-type]
+    configure_logging(cfg.log_level, cfg.resolved_db_path.parent)
     server = create_mcp_server(config=cfg)
 
     async def _run() -> None:
@@ -185,7 +187,8 @@ def _run_index(path: Path, db_path: Path | None) -> None:
     from repo_navigator.graph.db import Database
     from repo_navigator.graph.nx_graph import NxGraph
     from repo_navigator.indexer.scan import index_repo
-    from repo_navigator.parsers.registry import safe_parse
+    from repo_navigator.logging_setup import configure_logging
+    from repo_navigator.parsers.registry import parse_failure_count, safe_parse
 
     p = Path(path)
 
@@ -206,6 +209,7 @@ def _run_index(path: Path, db_path: Path | None) -> None:
         cfg = Config(root=cfg_root, db_path=db_path)  # type: ignore[arg-type]
         db_file = cfg.resolved_db_path
         _ensure_db_dir(db_file)
+        configure_logging(cfg.log_level, db_file.parent, reset=True)
         db = Database(str(db_file))
         nx_graph = NxGraph()
         try:
@@ -215,13 +219,15 @@ def _run_index(path: Path, db_path: Path | None) -> None:
             if existing_nodes or existing_edges:
                 nx_graph.rebuild(nodes=existing_nodes, edges=existing_edges)
             content = p.read_text(encoding="utf-8")
+            failures_before = parse_failure_count()
             parse_result = safe_parse(Path(rel), content)
             builder = GraphBuilder(db, nx_graph)
             builder.build_file(rel, parse_result)
             typer.echo(
                 f"indexed 1 files -> "
                 f"nodes={db.count_nodes()} edges={db.count_edges()} "
-                f"generation={db.get_generation_id()} db={db_file}"
+                f"generation={db.get_generation_id()} "
+                f"parse_errors={parse_failure_count() - failures_before} db={db_file}"
             )
         finally:
             db.close()
@@ -232,6 +238,7 @@ def _run_index(path: Path, db_path: Path | None) -> None:
     cfg = Config(root=cfg_root, db_path=db_path)  # type: ignore[arg-type]
     db_file = cfg.resolved_db_path
     _ensure_db_dir(db_file)
+    configure_logging(cfg.log_level, db_file.parent, reset=True)
     db = Database(str(db_file))
     nx_graph = NxGraph()
     try:
@@ -246,6 +253,7 @@ def _run_index(path: Path, db_path: Path | None) -> None:
             f"indexed {stats['files']} files -> "
             f"nodes={stats['nodes']} edges={stats['edges']} "
             f"generation={stats['generation']} "
+            f"parse_errors={stats['parse_errors']} "
             f"({stats['elapsed_ms']:.0f}ms) db={db_file}"
         )
     finally:
@@ -259,12 +267,14 @@ async def _run_watch(path: Path, db_path: Path | None) -> None:
     from repo_navigator.graph.nx_graph import NxGraph
     from repo_navigator.indexer.event_router import EventRouter
     from repo_navigator.indexer.update_engine import UpdateEngine
+    from repo_navigator.logging_setup import configure_logging
     from repo_navigator.watcher.filesystem import RepoWatcher
 
     root = Path(path).resolve()
     cfg = Config(root=root, db_path=db_path)  # type: ignore[arg-type]
     db_file = cfg.resolved_db_path
     _ensure_db_dir(db_file)
+    configure_logging(cfg.log_level, db_file.parent, reset=True)
 
     db = Database(str(db_file))
     db.init_db()

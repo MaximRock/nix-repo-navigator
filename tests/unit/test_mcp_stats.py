@@ -218,7 +218,11 @@ def _make_graph_db(root: Path) -> Path:
     for name in ("a.nix", "b.nix", "c.py", "d.nix"):
         (root / name).write_text("{}\n", encoding="utf-8")
     (root / ".repo-navigator" / "parse_errors.log").write_text(
-        "oops\nline2\n", encoding="utf-8"
+        "2026-01-01 00:00:00,000 ERROR repo_navigator.parsers: boom\n"
+        "Traceback (most recent call last):\n"
+        '  File "x.py", line 1\n'
+        "2026-01-01 00:00:01,000 ERROR repo_navigator.parsers: boom2\n",
+        encoding="utf-8",
     )
     return db
 
@@ -266,6 +270,8 @@ def test_health_cli_fail_on_regress(tmp_path: Path, capsys: Any) -> None:
     ]
     assert stats.main([*base, "--update-baseline", "--json"]) == 0
     capsys.readouterr()
+    baseline = json.loads((tmp_path / "b.json").read_text(encoding="utf-8"))
+    assert "root" not in baseline and "db" not in baseline
 
     con = sqlite3.connect(db)
     con.execute("INSERT INTO edges VALUES ('e3', 'nix:a.nix', 'nix:ghost2', 'imports')")
