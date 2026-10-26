@@ -5,10 +5,16 @@
 reports how the MCP tools were actually used: call counts, latency, output
 size, errors, dead tools, query arguments and the fallback-to-read rate.
 
-Nothing is uploaded or written. Standard library only::
+``health`` inspects an indexed repository (graph DB + files on disk) and
+reports graph quality: synthetic nodes, dangling edges, coverage gaps,
+incremental-index state and parse errors.
+
+Nothing is uploaded. Standard library only::
 
     python scripts/mcp_stats.py usage
     python scripts/mcp_stats.py usage --json
+    python scripts/mcp_stats.py health --root .
+    python scripts/mcp_stats.py health --root . --baseline scripts/baselines/graph-health.json
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import argparse
 import ast
 import json
 import math
+import os
 import sqlite3
 import sys
 from collections import Counter, defaultdict
@@ -37,6 +44,35 @@ FALLBACK_TOOLS = frozenset({"read", "grep", "glob", "bash"})
 READ_TOOLS = frozenset({"read", "grep", "glob"})
 ARG_KEYS = ("query", "node_id", "source", "target", "option_path", "path", "attribute")
 MAX_ERROR_CHARS = 300
+
+DB_REL = Path(".repo-navigator") / "repo-navigator.db"
+BASELINE_REL = Path(".repo-navigator") / "health.json"
+PARSE_LOG_NAME = "parse_errors.log"
+# Kept in sync with repo_navigator/indexer/scan.py (standalone script: no imports).
+SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".venv",
+        ".repo-navigator",
+        ".direnv",
+        "__pycache__",
+        "result",
+        ".mypy_cache",
+        ".pytest_cache",
+        "target",
+        "node_modules",
+    }
+)
+LANG_EXTENSIONS = {"nix": frozenset({".nix"}), "python": frozenset({".py"})}
+# Quality metrics where growth is a regression (size metrics are informational).
+REGRESSION_KEYS = (
+    "dangling_edges",
+    "option_errors",
+    "unindexed_files",
+    "missing_files",
+    "parse_errors",
+)
+SYNTHETIC_RATIO_TOLERANCE = 0.02
 
 
 @dataclass
@@ -323,6 +359,245 @@ def print_report(report: UsageReport) -> None:
     )
 
 
+# ------------------------------------------------------------------ health
+
+
+def _health_connect(db: Path) -> sqlite3.Connection:
+    if not db.is_file():
+        raise SystemExit(
+            f"graph db not found: {db} (run: nix-repo-navigator index <root>)"
+        )
+    return sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+
+
+def _counts(con: sqlite3.Connection, sql: str) -> dict[str, int]:
+    try:
+        rows = con.execute(sql).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {str(name): int(count) for name, count in rows}
+
+
+def _scalar(con: sqlite3.Connection, sql: str) -> int:
+    try:
+        row = con.execute(sql).fetchone()
+    except sqlite3.OperationalError:
+        return 0
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def _scan_disk(root: Path, extensions: frozenset[str]) -> set[str]:
+    """Repo files matching *extensions*, using the indexer's skip rules."""
+    found: set[str] = set()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if name not in SKIP_DIRS and (not name.startswith(".") or name == ".config")
+        )
+        for name in filenames:
+            if name.startswith(".") or Path(name).suffix not in extensions:
+                continue
+            found.add((Path(dirpath) / name).relative_to(root).as_posix())
+    return found
+
+
+def _parse_error_count(db: Path) -> int:
+    log = db.parent / PARSE_LOG_NAME
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def collect_health(
+    root: Path, db: Path, langs: set[str] | None = None
+) -> dict[str, Any]:
+    """Snapshot graph quality for *root* indexed into *db* (read-only)."""
+    root = root.resolve()
+    con = _health_connect(db)
+    try:
+        generation = _scalar(con, "SELECT value FROM generation LIMIT 1")
+        total_nodes = _scalar(con, "SELECT COUNT(*) FROM nodes")
+        total_edges = _scalar(con, "SELECT COUNT(*) FROM edges")
+        nodes_by_type = _counts(
+            con, "SELECT type, COUNT(*) FROM nodes GROUP BY type ORDER BY 2 DESC"
+        )
+        edges_by_type = _counts(
+            con, "SELECT type, COUNT(*) FROM edges GROUP BY type ORDER BY 2 DESC"
+        )
+        node_langs = {
+            str(row[0]) for row in con.execute("SELECT DISTINCT lang FROM nodes")
+        }
+        synthetic = _scalar(
+            con,
+            """SELECT COUNT(*) FROM nodes WHERE metadata LIKE '%"synthetic": true%'""",
+        )
+        dangling_sources = _scalar(
+            con,
+            "SELECT COUNT(*) FROM edges e LEFT JOIN nodes n ON n.id = e.source "
+            "WHERE n.id IS NULL",
+        )
+        dangling_targets = _scalar(
+            con,
+            "SELECT COUNT(*) FROM edges e LEFT JOIN nodes n ON n.id = e.target "
+            "WHERE n.id IS NULL",
+        )
+        option_status = _counts(
+            con, "SELECT status, COUNT(*) FROM option_values GROUP BY status"
+        )
+        file_state_rows = _scalar(con, "SELECT COUNT(*) FROM file_state")
+        file_state_dirty = _scalar(
+            con, "SELECT COUNT(*) FROM file_state WHERE dirty = 1"
+        )
+        flake_inputs = _scalar(con, "SELECT COUNT(*) FROM flake_inputs")
+        flake_no_rev = _scalar(
+            con,
+            "SELECT COUNT(*) FROM flake_inputs WHERE rev IS NULL OR rev = ''",
+        )
+        graph_paths = {
+            str(row[0])
+            for row in con.execute(
+                "SELECT DISTINCT path FROM nodes WHERE path IS NOT NULL AND path <> ''"
+            )
+        }
+    finally:
+        con.close()
+
+    if langs is None:
+        langs = {"nix"} | (node_langs & set(LANG_EXTENSIONS))
+    extensions = frozenset().union(
+        *(LANG_EXTENSIONS[lang] for lang in langs if lang in LANG_EXTENSIONS)
+    )
+    disk_paths = _scan_disk(root, extensions) if extensions else set()
+    graph_files = (
+        {path for path in graph_paths if Path(path).suffix in extensions}
+        if extensions
+        else set()
+    )
+    unindexed = sorted(disk_paths - graph_files)
+    missing = sorted(path for path in graph_files if not (root / path).is_file())
+    try:
+        db_size = db.stat().st_size
+    except OSError:
+        db_size = 0
+
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "root": str(root),
+        "db": str(db),
+        "db_size_bytes": db_size,
+        "generation": generation,
+        "nodes": total_nodes,
+        "edges": total_edges,
+        "nodes_by_type": nodes_by_type,
+        "edges_by_type": edges_by_type,
+        "synthetic_nodes": synthetic,
+        "synthetic_ratio": round(synthetic / total_nodes, 4) if total_nodes else 0.0,
+        "dangling_edges": dangling_sources + dangling_targets,
+        "dangling_sources": dangling_sources,
+        "dangling_targets": dangling_targets,
+        "option_values": option_status,
+        "option_errors": option_status.get("error", 0),
+        "file_state_rows": file_state_rows,
+        "file_state_dirty": file_state_dirty,
+        "flake_inputs": flake_inputs,
+        "flake_inputs_without_rev": flake_no_rev,
+        "parse_errors": _parse_error_count(db),
+        "disk_files": len(disk_paths),
+        "graph_files": len(graph_files),
+        "unindexed_files": len(unindexed),
+        "unindexed_sample": unindexed[:10],
+        "missing_files": len(missing),
+        "missing_sample": missing[:10],
+    }
+
+
+def compare_health(current: dict[str, Any], baseline: dict[str, Any]) -> list[str]:
+    """Lists metrics that got worse than *baseline* (empty means OK)."""
+    problems: list[str] = []
+    for key in REGRESSION_KEYS:
+        old, new = baseline.get(key), current.get(key)
+        if isinstance(old, int) and isinstance(new, int) and new > old:
+            problems.append(f"{key}: {old} -> {new}")
+    old_ratio = baseline.get("synthetic_ratio")
+    new_ratio = current.get("synthetic_ratio")
+    if (
+        isinstance(old_ratio, (int, float))
+        and isinstance(new_ratio, (int, float))
+        and new_ratio - old_ratio > SYNTHETIC_RATIO_TOLERANCE
+    ):
+        problems.append(f"synthetic_ratio: {old_ratio:.3f} -> {new_ratio:.3f}")
+    return problems
+
+
+def print_health(
+    snapshot: dict[str, Any],
+    baseline_path: Path,
+    baseline_loaded: bool,
+    regressions: list[str],
+    updated: bool,
+) -> None:
+    print(
+        f"graph health  {snapshot['root']}  "
+        f"(generation {snapshot['generation']}, "
+        f"db {snapshot['db_size_bytes'] / 1048576:.2f} MiB)"
+    )
+    print(
+        f"nodes: {snapshot['nodes']:,}   "
+        f"synthetic: {snapshot['synthetic_nodes']:,} "
+        f"({snapshot['synthetic_ratio']:.1%})"
+    )
+    print(
+        f"edges: {snapshot['edges']:,}   "
+        f"dangling: {snapshot['dangling_edges']} "
+        f"(sources {snapshot['dangling_sources']}, "
+        f"targets {snapshot['dangling_targets']})"
+    )
+    print(
+        f"files: disk {snapshot['disk_files']:,}   "
+        f"in graph {snapshot['graph_files']:,}   "
+        f"unindexed {snapshot['unindexed_files']}   "
+        f"missing on disk {snapshot['missing_files']}"
+    )
+    print(
+        f"file_state: {snapshot['file_state_rows']:,} rows, "
+        f"dirty {snapshot['file_state_dirty']}"
+    )
+    if snapshot["file_state_rows"] == 0 and snapshot["nodes"]:
+        print("  WARNING: empty incremental metadata (bulk index writes no file_state)")
+    option_values = snapshot["option_values"]
+    rendered = ", ".join(f"{k}={v}" for k, v in sorted(option_values.items())) or "none"
+    print(f"option_values: {rendered}")
+    print(
+        f"flake_inputs: {snapshot['flake_inputs']:,}   "
+        f"without rev: {snapshot['flake_inputs_without_rev']}"
+    )
+    print(f"parse_errors.log: {snapshot['parse_errors']} line(s)")
+    print()
+    print(
+        "nodes by type: "
+        + ", ".join(f"{k} {v}" for k, v in snapshot["nodes_by_type"].items())
+    )
+    print(
+        "edges by type: "
+        + ", ".join(f"{k} {v}" for k, v in snapshot["edges_by_type"].items())
+    )
+    if snapshot["unindexed_sample"]:
+        print("unindexed sample: " + ", ".join(snapshot["unindexed_sample"]))
+    if updated:
+        print(f"baseline: updated {baseline_path}")
+    elif not baseline_loaded:
+        print(f"baseline: none at {baseline_path} (use --update-baseline)")
+    elif regressions:
+        print(f"baseline {baseline_path}: REGRESSED")
+        for problem in regressions:
+            print(f"  {problem}")
+    else:
+        print(f"baseline {baseline_path}: OK")
+
+
 def _since_to_ms(value: str) -> int:
     try:
         parsed = datetime.fromisoformat(value)
@@ -344,15 +619,84 @@ def main(argv: list[str] | None = None) -> int:
     usage.add_argument("--since", help="Only calls on/after this date (YYYY-MM-DD)")
     usage.add_argument("--limit", type=int, default=5, help="Arguments per tool")
     usage.add_argument("--json", action="store_true", help="Machine-readable output")
+
+    health = sub.add_parser("health", help="Graph quality snapshot for a repository")
+    health.add_argument("--root", type=Path, default=Path.cwd())
+    health.add_argument(
+        "--db", type=Path, default=None, help=f"Graph DB (default: <root>/{DB_REL})"
+    )
+    health.add_argument(
+        "--langs",
+        default=None,
+        help="Comma-separated languages to count on disk (default: nix + graph langs)",
+    )
+    health.add_argument(
+        "--baseline",
+        type=Path,
+        default=None,
+        help=f"Baseline snapshot (default: <root>/{BASELINE_REL})",
+    )
+    health.add_argument(
+        "--update-baseline", action="store_true", help="Overwrite the baseline file"
+    )
+    health.add_argument(
+        "--fail-on-regress", action="store_true", help="Exit 1 if metrics regressed"
+    )
+    health.add_argument("--json", action="store_true", help="Machine-readable output")
+
     args = parser.parse_args(argv)
 
-    since = _since_to_ms(args.since) if args.since else None
-    report = build_report(args.db, since=since, limit=args.limit)
+    if args.command == "usage":
+        since = _since_to_ms(args.since) if args.since else None
+        report = build_report(args.db, since=since, limit=args.limit)
+        if args.json:
+            json.dump(report_to_dict(report), sys.stdout, indent=2, ensure_ascii=False)
+            sys.stdout.write("\n")
+        else:
+            print_report(report)
+        return 0
+
+    root = args.root.resolve()
+    db: Path = args.db or (root / DB_REL)
+    langs = (
+        {lang.strip() for lang in args.langs.split(",") if lang.strip()}
+        if args.langs
+        else None
+    )
+    snapshot = collect_health(root, db, langs)
+    baseline_path: Path = args.baseline or (root / BASELINE_REL)
+
+    if args.update_baseline:
+        baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        baseline_path.write_text(
+            json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+    baseline: dict[str, Any] | None = None
+    if baseline_path.is_file():
+        try:
+            loaded = json.loads(baseline_path.read_text(encoding="utf-8"))
+            baseline = loaded if isinstance(loaded, dict) else None
+        except ValueError:
+            baseline = None
+    regressions = compare_health(snapshot, baseline) if baseline else []
+
     if args.json:
-        json.dump(report_to_dict(report), sys.stdout, indent=2, ensure_ascii=False)
+        payload = dict(snapshot)
+        payload["baseline"] = str(baseline_path) if baseline else None
+        payload["regressions"] = regressions
+        json.dump(payload, sys.stdout, indent=2, ensure_ascii=False)
         sys.stdout.write("\n")
     else:
-        print_report(report)
+        print_health(
+            snapshot,
+            baseline_path,
+            baseline_loaded=baseline is not None,
+            regressions=regressions,
+            updated=args.update_baseline,
+        )
+    if args.fail_on_regress and regressions:
+        return 1
     return 0
 
 

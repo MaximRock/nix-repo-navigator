@@ -163,3 +163,114 @@ def test_registered_tools_from_real_source() -> None:
     assert "observe" in names
     assert "report" in names
     assert len(names) >= 10
+
+
+# ------------------------------------------------------------------- health
+
+
+def _make_graph_db(root: Path) -> Path:
+    db = root / ".repo-navigator" / "graph.db"
+    db.parent.mkdir(parents=True)
+    con = sqlite3.connect(db)
+    con.executescript(
+        """
+        CREATE TABLE generation (id INTEGER PRIMARY KEY, value INTEGER NOT NULL);
+        CREATE TABLE nodes (
+            id TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT NOT NULL,
+            path TEXT, lang TEXT NOT NULL, metadata JSON NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE edges (id TEXT PRIMARY KEY, source TEXT, target TEXT, type TEXT);
+        CREATE TABLE option_values (key TEXT PRIMARY KEY, status TEXT NOT NULL);
+        CREATE TABLE file_state (path TEXT PRIMARY KEY, dirty BOOLEAN NOT NULL DEFAULT 0);
+        CREATE TABLE flake_inputs (name TEXT PRIMARY KEY, rev TEXT);
+        """
+    )
+    con.execute("INSERT INTO generation VALUES (1, 7)")
+    con.executemany(
+        "INSERT INTO nodes (id, type, name, path, lang, metadata) VALUES (?,?,?,?,?,?)",
+        [
+            ("nix:a.nix", "nix_module", "a.nix", "a.nix", "nix", "{}"),
+            ("nix:b.nix", "nix_module", "b.nix", "b.nix", "nix", "{}"),
+            ("nix:e.nix", "nix_module", "e.nix", "e.nix", "nix", "{}"),
+            ("python:c.py", "python_module", "c.py", "c.py", "python", "{}"),
+            (
+                "nix_option:services.foo.enable",
+                "nix_option",
+                "services.foo.enable",
+                None,
+                "nix",
+                '{"synthetic": true}',
+            ),
+        ],
+    )
+    con.executemany(
+        "INSERT INTO edges VALUES (?,?,?,?)",
+        [
+            ("e1", "nix:a.nix", "nix:b.nix", "imports"),
+            ("e2", "nix:b.nix", "nix:ghost.nix", "imports"),
+        ],
+    )
+    con.execute("INSERT INTO option_values VALUES ('x', 'error')")
+    con.execute("INSERT INTO option_values VALUES ('y', 'ok')")
+    con.execute("INSERT INTO flake_inputs VALUES ('nixpkgs', NULL)")
+    con.commit()
+    con.close()
+    for name in ("a.nix", "b.nix", "c.py", "d.nix"):
+        (root / name).write_text("{}\n", encoding="utf-8")
+    (root / ".repo-navigator" / "parse_errors.log").write_text(
+        "oops\nline2\n", encoding="utf-8"
+    )
+    return db
+
+
+def test_health_snapshot(tmp_path: Path) -> None:
+    db = _make_graph_db(tmp_path)
+    snapshot = stats.collect_health(tmp_path, db)
+
+    assert snapshot["generation"] == 7
+    assert snapshot["nodes"] == 5
+    assert snapshot["edges"] == 2
+    assert snapshot["synthetic_nodes"] == 1
+    assert snapshot["synthetic_ratio"] == 0.2
+    assert snapshot["dangling_edges"] == 1
+    assert snapshot["option_errors"] == 1
+    assert snapshot["file_state_rows"] == 0
+    assert snapshot["flake_inputs_without_rev"] == 1
+    assert snapshot["parse_errors"] == 2
+    assert snapshot["disk_files"] == 4
+    assert snapshot["graph_files"] == 4
+    assert snapshot["unindexed_sample"] == ["d.nix"]
+    assert snapshot["missing_sample"] == ["e.nix"]
+
+
+def test_health_baseline_regression(tmp_path: Path) -> None:
+    db = _make_graph_db(tmp_path)
+    baseline = stats.collect_health(tmp_path, db)
+    assert stats.compare_health(baseline, baseline) == []
+
+    baseline = {**baseline, "dangling_edges": 0}
+    problems = stats.compare_health(stats.collect_health(tmp_path, db), baseline)
+    assert problems == ["dangling_edges: 0 -> 1"]
+
+
+def test_health_cli_fail_on_regress(tmp_path: Path, capsys: Any) -> None:
+    db = _make_graph_db(tmp_path)
+    base = [
+        "health",
+        "--root",
+        str(tmp_path),
+        "--db",
+        str(db),
+        "--baseline",
+        str(tmp_path / "b.json"),
+    ]
+    assert stats.main([*base, "--update-baseline", "--json"]) == 0
+    capsys.readouterr()
+
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO edges VALUES ('e3', 'nix:a.nix', 'nix:ghost2', 'imports')")
+    con.commit()
+    con.close()
+
+    assert stats.main([*base, "--fail-on-regress"]) == 1
+    assert "REGRESSED" in capsys.readouterr().out
