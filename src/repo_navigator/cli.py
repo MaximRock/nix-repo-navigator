@@ -30,13 +30,17 @@ app.add_typer(query_app, name="query")
 
 
 def _plugin_kwargs(
-    plugins: str | None, parse_unreferenced: bool | None
+    plugins: str | None,
+    parse_unreferenced: bool | None,
+    exclude: str | None = None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
     if plugins is not None:
         kwargs["plugins"] = [p.strip() for p in plugins.split(",") if p.strip()]
     if parse_unreferenced is not None:
         kwargs["parse_unreferenced"] = parse_unreferenced
+    if exclude is not None:
+        kwargs["exclude"] = [p.strip() for p in exclude.split(",") if p.strip()]
     return kwargs
 
 
@@ -60,6 +64,10 @@ def start(
             "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
         ),
     ),
+    exclude: str | None = typer.Option(
+        None,
+        help="Comma-separated relative path prefixes to skip (e.g. 11,vendor).",
+    ),
 ) -> None:
     """Start the MCP server (stdio transport)."""
     import asyncio
@@ -69,7 +77,7 @@ def start(
     from repo_navigator.mcp_server import create_mcp_server
 
     kwargs: dict[str, object] = {"root": root or Path.cwd(), "db_path": db_path}
-    kwargs.update(_plugin_kwargs(plugins, parse_unreferenced))
+    kwargs.update(_plugin_kwargs(plugins, parse_unreferenced, exclude))
 
     cfg = Config(**kwargs)  # type: ignore[arg-type]
     configure_logging(cfg.log_level, cfg.resolved_db_path.parent)
@@ -136,9 +144,13 @@ def refresh(
             "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
         ),
     ),
+    exclude: str | None = typer.Option(
+        None,
+        help="Comma-separated relative path prefixes to skip (e.g. 11,vendor).",
+    ),
 ) -> None:
     """Force a full rescan (alias for index)."""
-    _run_index(root or Path.cwd(), db_path, plugins, parse_unreferenced)
+    _run_index(root or Path.cwd(), db_path, plugins, parse_unreferenced, exclude)
 
 
 @app.command("index")
@@ -161,9 +173,13 @@ def index_cmd(
             "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
         ),
     ),
+    exclude: str | None = typer.Option(
+        None,
+        help="Comma-separated relative path prefixes to skip (e.g. 11,vendor).",
+    ),
 ) -> None:
     """Index a repository (or single file) into the graph."""
-    _run_index(path, db_path, plugins, parse_unreferenced)
+    _run_index(path, db_path, plugins, parse_unreferenced, exclude)
 
 
 @app.command("report")
@@ -211,9 +227,13 @@ def watch_cmd(
             "(overrides REPO_NAVIGATOR_PARSE_UNREFERENCED)."
         ),
     ),
+    exclude: str | None = typer.Option(
+        None,
+        help="Comma-separated relative path prefixes to skip (e.g. 11,vendor).",
+    ),
 ) -> None:
     """Watch a repository for changes and incrementally update the graph."""
-    asyncio.run(_run_watch(path, db_path, plugins, parse_unreferenced))
+    asyncio.run(_run_watch(path, db_path, plugins, parse_unreferenced, exclude))
 
 
 @dev_app.command("watch")
@@ -236,6 +256,7 @@ def _run_index(
     db_path: Path | None,
     plugins: str | None = None,
     parse_unreferenced: bool | None = None,
+    exclude: str | None = None,
 ) -> None:
     from repo_navigator.config import Config
     from repo_navigator.graph.builder import GraphBuilder
@@ -264,7 +285,7 @@ def _run_index(
         cfg = Config(
             root=cfg_root,
             db_path=db_path,
-            **_plugin_kwargs(plugins, parse_unreferenced),  # type: ignore[arg-type]
+            **_plugin_kwargs(plugins, parse_unreferenced, exclude),  # type: ignore[arg-type]
         )
         db_file = cfg.resolved_db_path
         _ensure_db_dir(db_file)
@@ -297,7 +318,7 @@ def _run_index(
     cfg = Config(
         root=cfg_root,
         db_path=db_path,
-        **_plugin_kwargs(plugins, parse_unreferenced),  # type: ignore[arg-type]
+        **_plugin_kwargs(plugins, parse_unreferenced, exclude),  # type: ignore[arg-type]
     )
     db_file = cfg.resolved_db_path
     _ensure_db_dir(db_file)
@@ -328,12 +349,14 @@ async def _run_watch(
     db_path: Path | None,
     plugins: str | None = None,
     parse_unreferenced: bool | None = None,
+    exclude: str | None = None,
 ) -> None:
     from repo_navigator.config import Config
     from repo_navigator.graph.builder import GraphBuilder
     from repo_navigator.graph.db import Database
     from repo_navigator.graph.nx_graph import NxGraph
     from repo_navigator.indexer.event_router import EventRouter
+    from repo_navigator.indexer.scan import is_excluded
     from repo_navigator.indexer.update_engine import UpdateEngine
     from repo_navigator.logging_setup import configure_logging
     from repo_navigator.watcher.filesystem import RepoWatcher
@@ -342,7 +365,7 @@ async def _run_watch(
     cfg = Config(
         root=root,
         db_path=db_path,
-        **_plugin_kwargs(plugins, parse_unreferenced),  # type: ignore[arg-type]
+        **_plugin_kwargs(plugins, parse_unreferenced, exclude),  # type: ignore[arg-type]
     )
     db_file = cfg.resolved_db_path
     _ensure_db_dir(db_file)
@@ -383,6 +406,8 @@ async def _run_watch(
                 # file_path may be absolute (watcher) or relative; normalise
                 if not p.is_absolute():
                     p = root / file_path
+                if is_excluded(p, root, cfg.exclude):
+                    continue
                 if p.exists():
                     result = update_engine.process_file(p)
                     typer.echo(

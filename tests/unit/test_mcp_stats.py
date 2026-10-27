@@ -247,6 +247,28 @@ def test_health_snapshot(tmp_path: Path) -> None:
     assert snapshot["missing_sample"] == ["e.nix"]
 
 
+def test_health_counts_zero_node_file_as_indexed(tmp_path: Path) -> None:
+    db = _make_graph_db(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO file_state (path, dirty) VALUES ('d.nix', 0)")
+    con.commit()
+    con.close()
+
+    snapshot = stats.collect_health(tmp_path, db)
+    assert snapshot["unindexed_files"] == 0
+    assert snapshot["file_state_rows"] == 1
+
+
+def test_health_exclude_prefix(tmp_path: Path) -> None:
+    db = _make_graph_db(tmp_path)
+    (tmp_path / "11").mkdir()
+    (tmp_path / "11" / "skip.nix").write_text("{}\n")
+
+    snapshot = stats.collect_health(tmp_path, db, exclude=["11"])
+    assert snapshot["disk_files"] == 4
+    assert snapshot["unindexed_sample"] == ["d.nix"]
+
+
 def test_health_baseline_regression(tmp_path: Path) -> None:
     db = _make_graph_db(tmp_path)
     baseline = stats.collect_health(tmp_path, db)

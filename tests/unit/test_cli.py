@@ -180,3 +180,53 @@ def test_dev_watch_help() -> None:
     result = runner.invoke(app, ["dev", "watch", "--help"])
     assert result.exit_code == 0
     assert "watch" in result.output.lower()
+
+
+def test_index_exclude_prefix(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "keep.py").write_text("def f():\n    return 1\n")
+    (tmp_path / "11").mkdir()
+    (tmp_path / "11" / "skip.py").write_text("def g():\n    return 2\n")
+    db_path = tmp_path / "test.db"
+    result = runner.invoke(
+        app,
+        [
+            "index",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+            "--plugins",
+            "python",
+            "--parse-unreferenced",
+            "--exclude",
+            "11",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    found = runner.invoke(
+        app,
+        [
+            "query",
+            "find",
+            "skip.py",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
+    assert found.exit_code == 0, found.output
+    assert "py_func:11/skip.py:g" not in found.output
+    kept = runner.invoke(
+        app,
+        [
+            "query",
+            "find",
+            "keep.py",
+            "--root",
+            str(tmp_path),
+            "--db-path",
+            str(db_path),
+        ],
+    )
+    assert "py_func:pkg/keep.py:f" in kept.output

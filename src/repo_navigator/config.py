@@ -35,6 +35,10 @@ class Config(BaseSettings):
             "Deliberate universality for Python projects with a nix flake."
         ),
     )
+    exclude: list[str] = Field(
+        default_factory=list,
+        description="Relative path prefixes to skip while indexing (e.g. ['11']).",
+    )
     db_path: Path | None = Field(
         default=None,
         description="SQLite path; defaults to <root>/.repo-navigator/repo-navigator.db.",

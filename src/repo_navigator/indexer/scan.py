@@ -48,6 +48,24 @@ SKIP_DIRS = {
 }
 
 
+def is_excluded(path: Path, root: Path, exclude: list[str]) -> bool:
+    """True when *path* is under one of the relative *exclude* prefixes."""
+    if not exclude:
+        return False
+    try:
+        rel = path.relative_to(root).as_posix()
+    except ValueError:
+        return False
+    for raw in exclude:
+        prefix = raw.strip()
+        if prefix.startswith("./"):
+            prefix = prefix[2:]
+        prefix = prefix.rstrip("/")
+        if prefix and (rel == prefix or rel.startswith(prefix + "/")):
+            return True
+    return False
+
+
 def collect_files(
     root: Path,
     config: Config | None = None,
@@ -95,6 +113,7 @@ def collect_files(
     if not root.is_dir():
         return []
 
+    exclude = config.exclude if config is not None else []
     found: list[Path] = []
     stack: list[Path] = [root]
 
@@ -114,10 +133,12 @@ def collect_files(
                 else:
                     continue
             if entry.is_dir():
-                if name in SKIP_DIRS:
+                if name in SKIP_DIRS or is_excluded(entry, root, exclude):
                     continue
                 stack.append(entry)
             elif entry.is_file():
+                if is_excluded(entry, root, exclude):
+                    continue
                 parser = get_parser_for_file(entry)
                 if parser is None:
                     continue

@@ -412,7 +412,10 @@ def _parse_error_count(db: Path) -> int:
 
 
 def collect_health(
-    root: Path, db: Path, langs: set[str] | None = None
+    root: Path,
+    db: Path,
+    langs: set[str] | None = None,
+    exclude: list[str] | None = None,
 ) -> dict[str, Any]:
     """Snapshot graph quality for *root* indexed into *db* (read-only)."""
     root = root.resolve()
@@ -462,6 +465,12 @@ def collect_health(
                 "SELECT DISTINCT path FROM nodes WHERE path IS NOT NULL AND path <> ''"
             )
         }
+        # A file can parse to zero nodes (e.g. fully commented stub) yet
+        # still be indexed; file_state is the source of truth for coverage.
+        graph_paths |= {
+            str(row[0])
+            for row in con.execute("SELECT path FROM file_state")
+        }
     finally:
         con.close()
 
@@ -471,6 +480,16 @@ def collect_health(
         *(LANG_EXTENSIONS[lang] for lang in langs if lang in LANG_EXTENSIONS)
     )
     disk_paths = _scan_disk(root, extensions) if extensions else set()
+    if exclude:
+        disk_paths = {
+            path
+            for path in disk_paths
+            if not any(
+                path == prefix or path.startswith(prefix + "/")
+                for prefix in (e.strip().removeprefix("./").rstrip("/") for e in exclude)
+                if prefix
+            )
+        }
     graph_files = (
         {path for path in graph_paths if Path(path).suffix in extensions}
         if extensions
@@ -631,6 +650,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated languages to count on disk (default: nix + graph langs)",
     )
     health.add_argument(
+        "--exclude",
+        default=None,
+        help="Comma-separated relative path prefixes to ignore on disk",
+    )
+    health.add_argument(
         "--baseline",
         type=Path,
         default=None,
@@ -663,7 +687,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.langs
         else None
     )
-    snapshot = collect_health(root, db, langs)
+    exclude = (
+        [e.strip() for e in args.exclude.split(",") if e.strip()]
+        if args.exclude
+        else None
+    )
+    snapshot = collect_health(root, db, langs, exclude)
     baseline_path: Path = args.baseline or (root / BASELINE_REL)
 
     if args.update_baseline:
