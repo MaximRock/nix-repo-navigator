@@ -203,9 +203,17 @@ class GraphBuilder:
             all_new_nodes.extend(new_nodes)
             all_new_edges.extend(new_edges)
 
-        # Deduplicate by id (last wins, e.g. same nix_option declared twice).
+        # Deduplicate by id (last wins, e.g. same nix_option declared twice),
+        # but never let an importer's placeholder replace the real node.
         dedup_nodes: dict[str, Node] = {}
         for n in all_new_nodes:
+            prev = dedup_nodes.get(n.id)
+            if (
+                prev is not None
+                and not prev.metadata.get("synthetic")
+                and n.metadata.get("synthetic")
+            ):
+                continue
             dedup_nodes[n.id] = n
         dedup_edges: dict[str, Edge] = {}
         for e in all_new_edges:

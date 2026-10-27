@@ -16,8 +16,8 @@ from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.graph.queries import QueryEngine
 from repo_navigator.indexer.scan import index_repo
 from repo_navigator.indexer.update_engine import UpdateEngine
-from repo_navigator.models.edges import EdgeType
-from repo_navigator.models.nodes import NodeType
+from repo_navigator.models.edges import Edge, EdgeType
+from repo_navigator.models.nodes import Node, NodeType
 
 
 def _write(p: Path, content: str) -> None:
@@ -593,3 +593,66 @@ def test_e2e_builder_direct_api(tmp_path: Path) -> None:
     edges = db.get_all_edges()
     assert not any(e.type == EdgeType.declares for e in edges)
     assert any(e.type == EdgeType.sets for e in edges)
+
+
+def test_e2e_bulk_index_keeps_real_target_over_placeholder(tmp_path: Path) -> None:
+    # The importer sorts after the target, so a naive last-wins dedup
+    # would keep the importer's placeholder instead of the real node.
+    _write(
+        tmp_path / "a.nix",
+        "{ lib, ... }:\n"
+        "{\n"
+        "  options.services.foo.enable = lib.mkOption { type = lib.types.bool; };\n"
+        "}\n",
+    )
+    _write(tmp_path / "z.nix", "{ imports = [ ./a.nix ]; }\n")
+
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    mod = db.get_node("nix:a.nix")
+    assert mod is not None
+    assert not mod.metadata.get("synthetic")
+    assert mod.metadata.get("line") == 1
+    opt = db.get_node("nix_option:services.foo.enable")
+    assert opt is not None
+    assert not opt.metadata.get("synthetic")
+
+
+def test_e2e_query_engine_reloads_graph_on_generation_change(tmp_path: Path) -> None:
+    _write(tmp_path / "a.nix", "{ config.services.foo.enable = true; }\n")
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    q = QueryEngine(db, g, config=cfg)
+    assert q.hop("nix:a.nix", relation="imports").nodes == []
+
+    # Simulate a separate process writing a new edge and bumping generation.
+    db.upsert_node(
+        Node(
+            id="nix:b.nix",
+            type=NodeType.nix_module,
+            name="b.nix",
+            path="b.nix",
+            lang="nix",
+            metadata={"line": 1},
+        )
+    )
+    db.upsert_edge(
+        Edge(
+            id="nix:a.nix->imports->nix:b.nix",
+            source="nix:a.nix",
+            target="nix:b.nix",
+            type=EdgeType.imports,
+        )
+    )
+    db.inc_generation_id()
+
+    hop = q.hop("nix:a.nix", relation="imports")
+    assert [n.id for n in hop.nodes] == ["nix:b.nix"]

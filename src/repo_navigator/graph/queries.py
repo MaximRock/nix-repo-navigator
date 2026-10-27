@@ -131,8 +131,16 @@ class QueryEngine:
 
     def _check_generation(self) -> int:
         gen = self.db.get_generation_id()
-        if self._cache_generation is None or gen != self._cache_generation:
+        if self._cache_generation is None:
+            self._cache_generation = gen
+            return gen
+        if gen != self._cache_generation:
+            # Another process re-indexed the repo: refresh the in-memory
+            # snapshot so traversal verbs agree with the DB.
             self._cache.clear()
+            self.nx_graph.rebuild(
+                nodes=self.db.get_all_nodes(), edges=self.db.get_all_edges()
+            )
             self._cache_generation = gen
         return gen
 
