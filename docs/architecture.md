@@ -3,7 +3,7 @@
 Three layers, Nix at the root:
 
 ```
-Layer 3: MCP Server (14 tools) ──→ QueryEngine
+Layer 3: MCP Server (6 tools) ──→ QueryEngine
 Layer 2: Query Engine + Graph (Database/NxGraph/Builder) ──→ SQLite (source of truth)
 Layer 1: Parsers & Indexer (nix, registry, hash, cascade, watch)
 ```
@@ -24,7 +24,7 @@ Layer 1: Parsers & Indexer (nix, registry, hash, cascade, watch)
 
 ## Layer 3: MCP
 
-- `mcp_server.py` (`MCPServer` from `mcp==2.x`, not `FastMCP`), `create_mcp_server(config, engine)` registers 17 tools, each `engine.<verb>` → `model_dump(mode="json")`, `ToolError` for user errors (budget/depth/not found), `run_stdio_async()` transport, `python -m repo_navigator.mcp_server --root .`.
+- `mcp_server.py` (`MCPServer` from `mcp==2.x`, not `FastMCP`), `create_mcp_server(config, engine)` registers 6 compact tools: `find`, `module`, `impact`, `option`, `neighbors`, `status`. Each delegates to `QueryEngine`; responses are trimmed (no hashes/timestamps, no raw edge lists/evidence) and include `generation_id`. `ToolError` for user errors (budget/depth/not found); `run_stdio_async()` transport; `python -m repo_navigator.mcp_server --root .`. All other verbs remain CLI-only.
 
 ## Config & CLI
 

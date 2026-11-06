@@ -346,6 +346,61 @@ class TestFts5:
             "nix_option:services.nginx.enable"
         ]
 
+    def test_search_prefers_real_over_synthetic_path_null(self, db: Database) -> None:
+        synthetic = Node(
+            id="nix_option:security.polkit.enable",
+            type=NodeType.nix_option,
+            name="security.polkit.enable",
+            path=None,
+            metadata={"synthetic": True},
+        )
+        real = make_module("modules/nixos/desktop/polkit-agent.nix")
+        db.upsert_node(synthetic)
+        db.upsert_node(real)
+
+        hits = db.search_fts5("polkit")
+        assert hits[0].id == real.id
+        assert hits[1].id == synthetic.id
+
+    def test_search_prefers_real_when_synthetic_has_path(self, db: Database) -> None:
+        synthetic = Node(
+            id="nix:fake/polkit-agent.nix",
+            type=NodeType.nix_module,
+            name="fake/polkit-agent.nix",
+            path="fake/polkit-agent.nix",
+            metadata={"synthetic": True},
+        )
+        real = make_module("modules/nixos/desktop/polkit-agent.nix")
+        db.upsert_node(synthetic)
+        db.upsert_node(real)
+
+        hits = db.search_fts5("polkit")
+        assert hits[0].id == real.id
+
+    def test_search_or_fallback_also_prefers_real(self, db: Database) -> None:
+        synthetic = Node(
+            id="nix_option:programs.wezterm.enable",
+            type=NodeType.nix_option,
+            name="programs.wezterm.enable",
+            metadata={"synthetic": True},
+        )
+        real = make_module("modules/stylix.nix")
+        db.upsert_node(synthetic)
+        db.upsert_node(real)
+
+        hits = db.search_fts5("wezterm stylix")
+        assert hits[0].id == real.id
+        assert {n.id for n in hits} == {synthetic.id, real.id}
+
+    def test_search_bm25_prefers_shorter_exact_name(self, db: Database) -> None:
+        hardware = make_module("hardware-configuration.nix")
+        host = make_module("configuration.nix")
+        db.upsert_node(hardware)  # inserted first to defeat rowid ordering
+        db.upsert_node(host)
+
+        hits = db.search_fts5("configuration.nix")
+        assert hits[0].id == host.id
+
 
 # -------------------------------------------------------------- persistence
 

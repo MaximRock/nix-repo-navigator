@@ -9,7 +9,7 @@ Knowledge-graph assistant for **NixOS** and **home-manager** repositories. Build
 
 > **Миссия:** repo-navigator — MCP-компаньон AI-агента в NixOS/home-manager репозиториях. Индексирует репо в типизированный граф (модули, опции, файлы, flake-входы) и через MCP отдаёт агенту точный, компактный контекст и оценку влияния изменений — без повторного перечитывания исходников, экономя токены модели. **Nix в корне**, остальные языки — плагины.
 
-> **Status:** MVP 0.1.0 — 370 tests, 14 MCP tools, incremental indexing, KDL + Python plugins.
+> **Status:** MVP 0.1.0 — 512 tests, 6 MCP tools, incremental indexing, KDL + Python plugins.
 
 ## Quickstart (30s)
 
@@ -81,10 +81,8 @@ nix develop github:MaximRock/nix-repo-navigator
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Layer 3: MCP Server (11+3 tools)            │  repo_navigator/mcp_server.py
-│  observe/hop/path/blast/find/summarize/     │  → QueryEngine
-│  introspect/eval/impact/status/refresh/     │
-│  flake-inputs/packages                      │
+│ Layer 3: MCP Server (6 tools)               │  repo_navigator/mcp_server.py
+│  find/module/impact/option/neighbors/status │  → QueryEngine
 ├─────────────────────────────────────────────┤
 │ Layer 2: Query Engine + Graph               │  graph/queries.py (LRU, budgets)
 │  Database (SQLite, source of truth)         │  graph/db.py (WAL, migrations)
@@ -102,9 +100,9 @@ nix develop github:MaximRock/nix-repo-navigator
 
 * **Nix-first:** Only `.nix` is always parsed. Other languages (KDL, python…) are parsed only if referenced via `home.file`/`configures` or `.config/` and enabled in `Config.plugins`.
 * **Incremental:** `content_hash` (xxhash) → `ast_hash` (ParseResult) → `merkle_hash` (deps). `UpdateEngine` + `cascade_dirty` + `watcher` (watchdog/polling, debounce 500ms).
-* **MCP:** `mcp>=2.0` `MCPServer`, `stdio` transport, 14 tools, `generation_id` in every response. Compatibility shim for `mcp 1.x` (`FastMCP`) in `mcp_server.py`.
+* **MCP:** `mcp>=2.0` `MCPServer`, `stdio` transport, 6 compact tools (`find`, `module`, `impact`, `option`, `neighbors`, `status`), `generation_id` in graph responses. All other query verbs remain CLI-only. Compatibility shim for `mcp 1.x` (`FastMCP`) in `mcp_server.py`.
 
-## Query verbs (CLI `query *` / MCP `repo_navigator_*`)
+## Query verbs (CLI `query *`; MCP exposes six)
 
 | Verb | CLI | Description | Budget |
 |------|-----|-------------|--------|
@@ -135,7 +133,11 @@ python -m repo_navigator.mcp_server --root .  # DB: .repo-navigator/repo-navigat
 npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --root .
 ```
 
-Tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_module`, `introspect_option`, `eval_expression`, `impact_analysis`, `status`, `refresh`, `list_flake_inputs`, `list_packages`, `get_package` (14).
+Tools: `find`, `module`, `impact`, `option`, `neighbors`, `status` (6).
+Use `graft` for generic where-is/code search; use navigator for Nix graph
+context, option provenance and change impact. Everything else (`hop`, `path`,
+`blast`, `dependencies`, `dependents`, `eval`, `refresh`, flake/package
+queries, `report`) stays available through the CLI.
 
 > **Note:** the `start`/MCP server requires `mcp>=2.0`. The Nix flake pins an overridden `mcp 2.1.1` (nixpkgs currently ships `mcp 1.x`). `mcp_server.py` includes a 1.x/2.x compatibility shim, so CLI tools keep working either way.
 
@@ -170,7 +172,7 @@ servers:
 
 ```
 
-All agents get access to all 14 MCP tools: `observe`, `hop`, `path`, `blast_radius`, `find_symbol`, `summarize_module`, `introspect_option`, `eval_expression`, `impact_analysis`, `status`, `refresh`, `list_flake_inputs`, `list_packages`, `get_package`.
+All agents get the same 6 MCP tools: `find`, `module`, `impact`, `option`, `neighbors`, `status`.
 
 ## Configuration
 

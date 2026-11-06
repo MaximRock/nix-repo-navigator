@@ -1,73 +1,88 @@
 # Query Verbs
 
-All verbs are available via `QueryEngine` (Python), `CLI` (`repo-navigator query *`), and `MCP` (`repo_navigator_*`).
+All verbs are available through `QueryEngine` (Python) and the CLI
+(`nix-repo-navigator query *`). The MCP server deliberately exposes only six
+compact tools; the rest stay CLI-only to keep the agent surface small.
 
-Every response includes `generation_id` (SQLite `generation` table, `inc` on each `build_file`/`build_all`).
+**Division of labour:** use `graft` for generic where-is/code search. Use
+`repo-navigator` for Nix graph context: module structure, option provenance and
+change impact.
 
-## Navigation
+Every response includes `generation_id` (SQLite `generation` table, `inc` on
+each `build_file`/`build_all`).
 
-| Verb | CLI | MCP Tool | Params | Budget | Returns |
-|------|-----|----------|--------|--------|---------|
-| `observe` | `query observe <node> --depth 1` | `repo_navigator_observe` | `node_id`, `depth≤20` | 20 neighbours | `Observation{node, neighbors: Neighbor[edge,node], generation_id}` |
-| `hop` | `query hop <node> --relation imports --depth 2 --width 10` | `repo_navigator_hop` | `node_id`, `relation?`, `depth≤10`, `width` | `width*depth≤100` | `Subgraph{nodes, edges, generation_id}` |
-| `path` | `query path <src> <dst>` | `repo_navigator_path` | `source`, `target` | — | `list[PathStep{node, edge_in, depth}]` (Dijkstra, weight) |
-| `blast_radius` | `query blast <node> --max-depth 5` | `repo_navigator_blast_radius` | `node_id`, `max_depth≤10` | — | `Subgraph` (reverse BFS) |
-| `dependencies` | `query dependencies <node> --max-depth 5` | `repo_navigator_dependencies` | `node_id`, `max_depth≤10` | — | `DependenciesReport{target, depends_on: list[DependencyEntry{node, steps, depth}], max_depth, generation_id}` |
-| `dependents` | `query dependents <node> --max-depth 5` | `repo_navigator_dependents` | `node_id`, `max_depth≤10` | — | `DependentsReport{target, dependents: list[DependencyEntry{node, steps, depth}], max_depth, generation_id}` |
-| `find_symbol` | `query find <q> --fuzzy --lang nix` | `repo_navigator_find_symbol` | `query`, `lang?`, `fuzzy`, `limit=10` | — | `list[Node]` (FTS5 or LIKE) |
-| `summarize_module` | `query summarize <path>` | `repo_navigator_summarize_module` | `path` (e.g. `a.nix`) | — | `ModuleSummary{incoming_edges, outgoing_edges, key_symbols, generation_id}` |
-| `impact_analysis` | `query impact <node>` | `repo_navigator_impact_analysis` | `node_id`, `max_depth` | — | `ImpactReport{target, affected_modules/options/files, risk_level, generation_id}` |
+## MCP surface (6 tools)
 
-## Introspection & Eval
+MCP tools use short names, so an OpenCode server named `nix-repo-navigator`
+exposes `nix-repo-navigator_find`, `nix-repo-navigator_impact`, and so on.
 
-| `introspect_option` | `query option <path> --eval` | `repo_navigator_introspect_option` | `option_path`, `include_value` | — | `OptionInfo{opt_type,default,example,description,declared_in,defined_in,conditional_sets,value,value_status,generation_id}` |
-| `eval_expression` | `query eval "1+1"` | `repo_navigator_eval_expression` | `expr`, `timeout≤120` | — | `EvalResult{expr,value_json,status,error,cached,generation_id}` (cache `option_values`, `source_rev` from `flake.lock`) |
+| Tool | Params | Returns |
+|------|--------|---------|
+| `find` | `query`, `lang?`, `node_type?`, `path_contains?`, `id_prefix?`, `fuzzy=false`, `limit=10`, `offset=0` | `list[compact Node]`; real nodes rank before synthetic ones. Synthetic options carry `metadata.declared_in`/`metadata.defined_in`. |
+| `module` | `path` | `{path, key_symbols, imports, imported_by, options_set, packages, configures, dangling, generation_id}` |
+| `impact` | `target` (node id or repo path), `node_id?` (legacy alias), `max_depth=5` | `{target, affected_modules, affected_files, affected_options, options_set, risk_level, basis="static", generation_id}` |
+| `option` | `name` (dotted path), `option_path?` (legacy alias), `include_value=false` | `OptionInfo` (`declared_in`, `defined_in`, `conditional_sets`, type/default/description, optional evaluated value) |
+| `neighbors` | `node_id`, `depth=1` (`≤20`) | `{node, neighbors: [{edge, node, dangling}], generation_id}` |
+| `status` | — | `StatusResponse` (`mode`, node/edge counts, uptime, `generation_id`) |
 
-### `eval_expression` — expression syntax
+MCP payloads are compact: nodes omit hashes/timestamps, `module` omits raw
+edge lists, `impact` omits evidence chains, and `neighbors` returns brief
+nodes/edges. Full models remain available from the library and CLI.
 
-`eval_expression` evaluates via `nix eval --json --impure --expr <expr>`.
-There are **no injected bindings** — the expression runs in an empty,
-impure Nix namespace, so a flake URL like `nixpkgs#lib.version` fails with
+`impact` is static graph analysis (`basis="static"`): it cannot see dynamic
+imports or evaluation-time module composition. Run it before editing a shared
+module or option; check `options_set` for what the target itself sets.
+
+## CLI query verbs
+
+| Verb | CLI | Description | Budget |
+|------|-----|-------------|--------|
+| `observe` | `query observe <node> --depth 1` | Neighbours (edge+node) | depth≤20 |
+| `hop` | `query hop <node> --relation imports --depth 2` | BFS + filter | width*depth≤100 |
+| `path` | `query path <src> <dst>` | Dijkstra shortest path | — |
+| `blast` | `query blast <node> --max-depth 5` | Reverse BFS (dependents) | max_depth≤10 |
+| `dependencies` | `query dependencies <node> --max-depth 5` | Forward dependency closure with evidence | max_depth≤10 |
+| `dependents` | `query dependents <node> --max-depth 5` | Reverse dependency closure with evidence | max_depth≤10 |
+| `find` | `query find <q> --fuzzy --lang nix` | FTS5 / LIKE | limit 10 |
+| `summarize` | `query summarize <path>` | In/out edges + key symbols | — |
+| `option` | `query option <path> --eval` | Static + lazy `nix eval` | — |
+| `eval` | `query eval "1+1"` | Cached `nix eval` | timeout≤120 |
+| `impact` | `query impact <node>` | Blast radius + risk | — |
+| `flake-inputs` | `query flake-inputs` | `flake.lock` inputs | — |
+| `packages` | `query packages [query]` | `package_index` (mock) | limit 50 |
+| `package` | `query package <attr>` | Package metadata (mock) | — |
+| `report` | `report` | Benefit report for the session | — |
+
+### `eval` — expression syntax (CLI-only)
+
+`query eval` evaluates via `nix eval --json --impure --expr <expr>`.
+There are **no injected bindings** — the expression runs in an empty, impure
+Nix namespace, so a flake URL like `nixpkgs#lib.version` fails with
 `error: undefined variable 'nixpkgs'`. Use one of:
 
 - Pure expressions: `1 + 2`, `builtins.toString 42`
 - Flake attributes via the flake registry:
-  `builtins.getFlake "nixpkgs"` (then `.lib.version`),
-  or a full attribute form `(builtins.getFlake "nixpkgs").lib.version`
-- Repo-local eval is NOT wired: `eval_expression` cannot see the repo's own
-  `flake.nix` outputs. To evaluate a repo option, prefer `introspect_option`
-  with `include_value=true`, which builds `config.<option_path>` itself.
+  `(builtins.getFlake "nixpkgs").lib.version`
+- Repo-local eval is NOT wired: `eval` cannot see the repo's own `flake.nix`
+  outputs. To evaluate a repo option, prefer `query option <path> --eval`,
+  which builds `config.<option_path>` itself.
 
-Note that `builtins.getFlake` resolves through the machine's flake registry,
-so `nixpkgs` must be registered or a full URI given
+`builtins.getFlake` resolves through the machine's flake registry, so
+`nixpkgs` must be registered or a full URI given
 (e.g. `github:NixOS/nixpkgs/nixos-unstable`).
 
-### `introspect_option` — scope (repo-local only)
+### `option` — scope (repo-local only)
 
-`introspect_option` answers from the **repo's own graph**: the option node must
-exist (declared via `options.<path> = lib.mkOption {...}` in a module of this
-repo) and its `declares`/`sets` edges must target `nix_option:<path>`.
+`option` answers from the **repo's own graph**: the option node must exist
+(declared via `options.<path> = lib.mkOption {...}` in a module of this repo)
+and its `declares`/`sets` edges must target `nix_option:<path>`.
 
 An option defined by nixpkgs itself — e.g. `system.stateVersion`, virtually
 every `services.*`/`programs.*` option — is **not** in the index, so
 `declared_in`/`defined_in` are empty and `opt_type`/`default`/`description`
-are `null`. To also get its value, use `include_value=true`, which evaluates
-`config.<option_path>` via nix separately. This is expected: the tool is a
-repo-introspection verb, not a nixpkgs option browser (use
-`manix`/`nixos-option` for that).
-
-## System
-
-| `status` | `query status` / `status` | `repo_navigator_status` | — | — | `StatusResponse{mode: static|hybrid (which nix), total_nodes, total_edges, uptime, sync_progress, generation_id}` |
-| `refresh` | `refresh` / `query status` | `repo_navigator_refresh` | — | — | `StatusResponse` after `index_repo` |
-| `flake-inputs` | `query flake-inputs` | `repo_navigator_list_flake_inputs` | — | — | `list[{name,url,rev}]` |
-| `packages` | `query packages [query]` | `repo_navigator_list_packages` | `query?`, `limit=50` | — | `list[{attribute,name,version,store_path,meta}]` (mock) |
-| `package` | `query package <attr>` | `repo_navigator_get_package` | `attribute` | — | `dict` or 404 |
-| `report` | `report` | `repo_navigator_report` | — | — | `BenefitReport{queries_served, queries_by_tool, files_served, bytes_not_reread, tokens_estimated_saved, uptime_seconds, generation_id}` |
-
-`report.files_served` counts **distinct source-file paths served through
-queries this session** (deduplicated) — it is *not* the number of indexed
-files. `tokens_estimated_saved = bytes_not_reread // 4`.
+are `null`. With `--eval`, the value is still evaluated separately. This is
+expected: the verb is a repo-introspection tool, not a nixpkgs option browser
+(use `manix`/`nixos-option` for that).
 
 ## Examples
 
@@ -80,7 +95,6 @@ nix-repo-navigator query find "services.foo" --fuzzy --limit 5
 nix-repo-navigator query summarize a.nix
 nix-repo-navigator query option services.foo.enable --eval
 nix-repo-navigator query eval "1+1" --timeout 10
-nix-repo-navigator query eval "builtins.getFlake \"nixpkgs\".lib.version"
 nix-repo-navigator query impact nix:b.nix
 nix-repo-navigator query dependencies nix:a.nix --max-depth 3
 nix-repo-navigator query dependents nix:option.nix --max-depth 3
@@ -93,33 +107,36 @@ MCP (Inspector):
 
 ```bash
 npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --root .
-# tools/list -> 17 tools, call_tool -> structuredContent + generation_id
+# tools/list -> 6 tools; call_tool -> structuredContent + generation_id
 ```
 
-Budgets enforced: `hop` raises `ValueError` if `width*depth>100`, `depth>10` etc. → MCP `ToolError` (`is_error`).
+Budgets enforced: `hop` raises `ValueError` if `width*depth>100`, `depth>10`
+etc.; MCP maps these to `ToolError` (`is_error`).
 
-Cache: `QueryEngine` LRU key `(method, params, generation_id)`, cleared on `generation` bump.
+Cache: `QueryEngine` LRU key `(method, params, generation_id)`, cleared on
+`generation` bump.
 
-## Semantics notes (BUG-004)
+## Semantics notes
 
 - `observe depth=1` returns the direct neighbourhood (≤20 neighbours).
   `depth>1` is a **full incident-set expansion**: forward + reverse BFS up to
-  `depth`, attaching every visited node's own edges — *without*
-  path-anchoring to the start node or relevance ranking. Distant neighbours
-  (e.g. `bun2nix→nixpkgs`-style edges two hops away) are therefore expected,
-  not a bug. For anchored traversal use `hop --relation …`,
-  `dependencies`/`dependents` (evidence chains included), or `blast_radius`.
+  `depth`, attaching every visited node's own edges — *without* path-anchoring
+  to the start node or relevance ranking. For anchored traversal use
+  `hop --relation …`, `dependencies`/`dependents`, or `blast`.
 - `dependencies`/`dependents` close over the full forward edge set
   (`imports`, `requires`, `python_imports`, `references`, `uses_package`,
   `sets`, `configures`, `generates`). Structural edges (`declares`,
   `specialises`, `passes_args`) are excluded: declaring an option is not a
   dependency on it.
-- `blast_radius` returns reverse-BFS nodes but only edges lying on some path
-  to the target (sibling imports of visited modules are excluded).
-- `find_symbol` (non-fuzzy) is FTS5: multi-word queries are AND-ed across
-  tokens (not a phrase); an empty AND falls back to OR. `fuzzy`/filtered
-  queries use LIKE.
-- `introspect_option --eval`: `defined_in` covers sets from any static
-  attrpath tree (including plain `modules.* = { … }` attrsets, not only
-  `config` blocks). Eval failures surface as
-  `value_status: "<status>: <first error line>"` instead of a bare status.
+- `blast` returns reverse-BFS nodes but only edges lying on some path to the
+  target (sibling imports of visited modules are excluded).
+- `find` (non-fuzzy) is FTS5: multi-word queries are AND-ed across tokens (not
+  a phrase); an empty AND falls back to OR. `fuzzy`/filtered queries use LIKE.
+  Results rank real nodes before synthetic ones and prefer shorter/exact names.
+- Synthetic option provenance comes from graph edges:
+  `declared_in` from `declares`, `defined_in` from `sets`. Batch-loaded during
+  `find_symbol`, so it does not require re-indexing.
+- `option --eval`: `defined_in` covers sets from any static attrpath tree
+  (including plain `modules.* = { … }` attrsets, not only `config` blocks).
+  Eval failures surface as `value_status: "<status>: <first error line>"`
+  instead of a bare status.

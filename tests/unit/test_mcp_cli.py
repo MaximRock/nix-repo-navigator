@@ -12,7 +12,6 @@ from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.graph.queries import QueryEngine
 from repo_navigator.mcp_server import create_mcp_server
-from repo_navigator.models.edges import EdgeType, RawEdge
 from repo_navigator.models.nodes import NodeType, RawNode
 from repo_navigator.models.queries import ParseResult
 
@@ -40,7 +39,9 @@ def test_cli_start_help() -> None:
 
 def test_cli_start_runs_with_mock(tmp_path) -> None:
     # Mock MCPServer.run_stdio_async to avoid actual stdio
-    with patch("repo_navigator.mcp_server.MCPServer.run_stdio_async", new_callable=AsyncMock) as mock_run:
+    with patch(
+        "repo_navigator.mcp_server.MCPServer.run_stdio_async", new_callable=AsyncMock
+    ) as mock_run:
         # Use tmp_path as root to avoid touching cwd DB
         result = runner.invoke(app, ["start", "--root", str(tmp_path)])
         # The CLI start should have called asyncio.run which calls run_stdio_async
@@ -98,79 +99,49 @@ def test_cli_start_plugin_flags_absent_keep_env(tmp_path) -> None:
     assert captured.get("parse_unreferenced") is False
 
 
-def test_mcp_error_observe_missing() -> None:
+def _expect_tool_error(server, tool: str, args: dict[str, object]) -> str:
     import asyncio
 
     from repo_navigator.mcp_server import ToolError
 
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-
-    async def _run():
+    async def _run() -> str:
         with pytest.raises(ToolError) as exc_info:
-            await server.call_tool("repo_navigator_observe", {"node_id": "nix:missing.nix"})
-        assert "missing" in str(exc_info.value).lower() or "not found" in str(exc_info.value).lower()
+            await server.call_tool(tool, args)
+        return str(exc_info.value)
 
-    asyncio.run(_run())
+    return asyncio.run(_run())
 
 
-def test_mcp_error_hop_budget() -> None:
-    import asyncio
-
-    from repo_navigator.mcp_server import ToolError
-
+def test_mcp_error_neighbors_missing() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-
-    async def _run():
-        with pytest.raises(ToolError) as exc_info:
-            await server.call_tool("repo_navigator_hop", {"node_id": "nix:a.nix", "depth": 11, "width": 10})
-        assert "budget" in str(exc_info.value).lower() or "depth" in str(exc_info.value).lower()
-
-    asyncio.run(_run())
+    message = _expect_tool_error(server, "neighbors", {"node_id": "nix:missing.nix"})
+    assert "missing" in message.lower() or "not found" in message.lower()
 
 
-def test_mcp_error_summarize_missing() -> None:
-    import asyncio
-
-    from repo_navigator.mcp_server import ToolError
-
+def test_mcp_error_neighbors_depth_budget() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-
-    async def _run():
-        with pytest.raises(ToolError):
-            await server.call_tool("repo_navigator_summarize_module", {"path": "missing.nix"})
-
-    asyncio.run(_run())
+    message = _expect_tool_error(
+        server, "neighbors", {"node_id": "nix:a.nix", "depth": 21}
+    )
+    assert "depth" in message.lower()
 
 
-def test_mcp_eval_timeout_validation() -> None:
-    import asyncio
-
-    from repo_navigator.mcp_server import ToolError
-
+def test_mcp_error_module_missing() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-
-    async def _run():
-        with pytest.raises(ToolError) as exc_info:
-            await server.call_tool("repo_navigator_eval_expression", {"expr": "1+1", "timeout": 200})
-        assert "timeout" in str(exc_info.value).lower()
-
-    asyncio.run(_run())
+    _expect_tool_error(server, "module", {"path": "missing.nix"})
 
 
-def test_mcp_blast_depth_validation() -> None:
-    import asyncio
-
-    from repo_navigator.mcp_server import ToolError
-
+def test_mcp_error_impact_missing() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
+    _expect_tool_error(server, "impact", {"target": "missing.nix"})
 
-    async def _run():
-        with pytest.raises(ToolError):
-            await server.call_tool("repo_navigator_blast_radius", {"node_id": "nix:a.nix", "max_depth": 20})
 
-    asyncio.run(_run())
+def test_mcp_error_option_missing_name() -> None:
+    engine = _setup_engine()
+    server = create_mcp_server(engine=engine)
+    message = _expect_tool_error(server, "option", {})
+    assert "required" in message.lower()

@@ -571,6 +571,21 @@ def test_e2e_find_symbol_includes_line_and_snippet(tmp_path: Path) -> None:
     assert obs.node.snippet is not None and "lib" in obs.node.snippet
 
 
+def test_e2e_find_synthetic_option_includes_provenance(tmp_path: Path) -> None:
+    _write(tmp_path / "base.nix", "{ config.fonts.packages = [ ]; }\n")
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    cfg = Config(root=tmp_path)
+    index_repo(tmp_path, db, g, config=cfg)
+
+    q = QueryEngine(db, g, config=cfg)
+    hits = q.find_symbol("fonts")
+    hit = next(h for h in hits if h.id == "nix_option:fonts.packages")
+    assert hit.metadata["synthetic"] is True
+    assert hit.metadata["defined_in"] == ["base.nix"]
+
+
 def test_e2e_builder_direct_api(tmp_path: Path) -> None:
     # Direct builder usage without index_repo, to test build_file + build_all
     from repo_navigator.parsers.nix_parser import NixParser

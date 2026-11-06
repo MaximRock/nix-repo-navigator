@@ -221,6 +221,21 @@ class QueryEngine:
         self._size_cache[path] = size
         return size
 
+    def _attach_option_provenance(self, nodes: Iterable[Node]) -> None:
+        """Add declared_in/defined_in to synthetic option nodes in one batch."""
+        synthetic = [n for n in nodes if n.metadata.get("synthetic") is True]
+        if not synthetic:
+            return
+        provenance = self.db.get_option_provenance([n.id for n in synthetic])
+        for node in synthetic:
+            entry = provenance.get(node.id)
+            if not entry:
+                continue
+            if entry["declared_in"]:
+                node.metadata["declared_in"] = entry["declared_in"]
+            if entry["defined_in"]:
+                node.metadata["defined_in"] = entry["defined_in"]
+
     def report(self) -> BenefitReport:
         """Session benefit report: queries served and estimated token savings."""
         gen = self.db.get_generation_id()
@@ -580,6 +595,7 @@ class QueryEngine:
             self._note_query("find_symbol", self._cache[key])
             return self._cache[key]
         result = _compute()
+        self._attach_option_provenance(result)
         _attach_snippets(self.root, result)
         if len(self._cache) >= 128:
             self._cache.pop(next(iter(self._cache)))
@@ -698,13 +714,15 @@ class QueryEngine:
                 raise KeyError(f"module not found: {path}")
             incoming = [e for e in self.db.get_all_edges() if e.target == node_id]
             outgoing = self.db.get_edges_for_file(path)
-            # Key symbols: options declared, functions, packages, files
+            # Key symbols: options declared/set, functions, packages, files
             key_symbols: list[str] = []
             for e in outgoing:
                 if e.type == EdgeType.declares and e.target.startswith("nix_option:"):
                     key_symbols.append(e.target.removeprefix("nix_option:"))
+                elif e.type == EdgeType.sets and e.target.startswith("nix_option:"):
+                    key_symbols.append(e.target.removeprefix("nix_option:"))
                 elif e.type == EdgeType.uses_package:
-                    key_symbols.append(e.target)
+                    key_symbols.append(e.target.removeprefix("package:"))
                 elif e.type == EdgeType.configures:
                     key_symbols.append(e.target)
                 elif e.type == EdgeType.declares and e.target.startswith(
@@ -732,19 +750,47 @@ class QueryEngine:
 
     # ---------------------------------------------------------------- impact_analysis
 
+    def _resolve_target(self, target: str) -> str:
+        """Resolve a node id or repo path to a canonical node id."""
+        normalized = target.removeprefix("./")
+        if self.root is not None:
+            try:
+                path = Path(target)
+                if path.is_absolute():
+                    normalized = (
+                        path.resolve().relative_to(self.root.resolve()).as_posix()
+                    )
+            except (OSError, ValueError):
+                pass
+        candidates = [target, normalized]
+        candidates += [f"nix:{normalized}", f"file:{normalized}"]
+        seen: set[str] = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if self.db.get_node(candidate) is not None:
+                return candidate
+        for node_type in ("nix_module", "file"):
+            node_id = self.db.find_node_id_by_path(normalized, node_type)
+            if node_id is not None:
+                return node_id
+        raise KeyError(f"node not found: {target}")
+
     def impact_analysis(self, node_id: str, max_depth: int = 5) -> ImpactReport:
-        """Who is affected if *node_id* changes."""
+        """Who is affected if *node_id* (or a repo path) changes."""
+        target = self._resolve_target(node_id)
 
         def _compute() -> ImpactReport:
             gen = self.db.get_generation_id()
-            blast = self.blast_radius(node_id, max_depth=max_depth)
+            blast = self.blast_radius(target, max_depth=max_depth)
             affected_modules: list[str] = []
             affected_options: list[str] = []
             affected_files: list[str] = []
             for n in blast.nodes:
                 if n.type.value == "nix_module":
-                    # Extract path from id nix:xxx
-                    path = n.id.removeprefix("nix:").split("::")[0]
+                    # Prefer the stored path; fall back to the id.
+                    path = n.path or n.id.removeprefix("nix:").split("::")[0]
                     affected_modules.append(path)
                 elif n.type.value == "nix_option":
                     affected_options.append(n.id.removeprefix("nix_option:"))
@@ -758,6 +804,15 @@ class QueryEngine:
             affected_modules = sorted(set(affected_modules))
             affected_options = sorted(set(affected_options))
             affected_files = sorted(set(affected_files))
+            options_set = sorted(
+                {
+                    e.target.removeprefix("nix_option:")
+                    for e in self.db.get_edges_for_node(target)
+                    if e.source == target
+                    and e.type == EdgeType.sets
+                    and e.target.startswith("nix_option:")
+                }
+            )
 
             # Risk level based on counts
             total = len(affected_modules) + len(affected_options) + len(affected_files)
@@ -773,7 +828,7 @@ class QueryEngine:
             # Why: for each affected node reachable via dependency edges, the chain.
             try:
                 _, dep_entries = self._dependency_closure(
-                    node_id, max_depth, reverse=True
+                    target, max_depth, reverse=True
                 )
             except KeyError:
                 dep_entries = []
@@ -787,16 +842,17 @@ class QueryEngine:
             evidence = evidence[:100]
 
             return ImpactReport(
-                target=node_id,
+                target=target,
                 affected_modules=affected_modules,
                 affected_options=affected_options,
                 affected_files=affected_files,
+                options_set=options_set,
                 evidence=evidence,
                 risk_level=risk,
                 generation_id=gen,
             )
 
-        return self._cached(("impact_analysis", node_id, max_depth), _compute)
+        return self._cached(("impact_analysis", target, max_depth), _compute)
 
     # ---------------------------------------------------------------- introspect
 

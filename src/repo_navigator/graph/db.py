@@ -237,6 +237,20 @@ class Database:
             ).fetchone()
             return _row_to_node(row) if row else None
 
+    def find_node_id_by_path(
+        self, path: str, node_type: str | None = None
+    ) -> str | None:
+        """First node id owning *path* (optionally restricted to *node_type*)."""
+        sql = "SELECT id FROM nodes WHERE path=?"
+        params: list[object] = [path]
+        if node_type is not None:
+            sql += " AND type=?"
+            params.append(node_type)
+        sql += " ORDER BY id LIMIT 1"
+        with self._lock:
+            row = self._conn.execute(sql, params).fetchone()
+            return str(row["id"]) if row else None
+
     def delete_file_nodes(self, path: str) -> None:
         """Remove every node of a file; edges cascade via foreign keys."""
         with self._lock, self.transaction():
@@ -349,6 +363,45 @@ class Database:
                 (path,),
             ).fetchall()
             return [_row_to_edge(r) for r in rows]
+
+    def get_option_provenance(self, node_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Batch provenance for option nodes: declares + sets source paths.
+
+        ``declared_in`` mirrors :meth:`QueryEngine.introspect_option` (a
+        single path), ``defined_in`` lists every module that sets the option.
+        Synthetic option nodes carry no path of their own, so this is the only
+        way ``find_symbol`` can tell the agent where they come from.
+        """
+        if not node_ids:
+            return {}
+        placeholders = ",".join("?" for _ in node_ids)
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT e.target, e.type, e.source, n.path AS source_path
+                FROM edges e LEFT JOIN nodes n ON n.id = e.source
+                WHERE e.target IN ({placeholders})
+                  AND e.type IN (?, ?)
+                ORDER BY e.target, e.id
+                """,
+                (*node_ids, EdgeType.declares.value, EdgeType.sets.value),
+            ).fetchall()
+        provenance: dict[str, dict[str, Any]] = {
+            node_id: {"declared_in": None, "defined_in": []} for node_id in node_ids
+        }
+        for row in rows:
+            entry = provenance.get(row["target"])
+            if entry is None:
+                continue
+            source = row["source_path"] or row["source"].removeprefix("nix:")
+            if row["type"] == EdgeType.declares.value:
+                if entry["declared_in"] is None:
+                    entry["declared_in"] = source
+            else:
+                entry["defined_in"].append(source)
+        for entry in provenance.values():
+            entry["defined_in"] = sorted(set(entry["defined_in"]))
+        return provenance
 
     def get_all_edges(self) -> list[Edge]:
         with self._lock:
@@ -557,6 +610,9 @@ class Database:
                     SELECT n.* FROM node_search s
                     JOIN nodes n ON n.rowid = s.rowid
                     WHERE node_search MATCH ?
+                    ORDER BY (json_extract(n.metadata, '$.synthetic') IS NOT NULL),
+                             (n.path IS NULL),
+                             bm25(node_search, 1.0, 8.0, 1.0, 0.5)
                     LIMIT ?
                     """,
                     (match_and, limit),
@@ -575,6 +631,9 @@ class Database:
                     SELECT n.* FROM node_search s
                     JOIN nodes n ON n.rowid = s.rowid
                     WHERE node_search MATCH ?
+                    ORDER BY (json_extract(n.metadata, '$.synthetic') IS NOT NULL),
+                             (n.path IS NULL),
+                             bm25(node_search, 1.0, 8.0, 1.0, 0.5)
                     LIMIT ?
                     """,
                     (match_or, limit),

@@ -38,11 +38,28 @@ SERVER_SOURCE = (
 )
 TOOL_PREFIX = "nix-repo-navigator_"
 SHORT_PREFIX = "repo_navigator_"
+# Old long tool names -> short six-tool surface (history stays comparable).
+TOOL_ALIASES = {
+    "find_symbol": "find",
+    "summarize_module": "module",
+    "introspect_option": "option",
+    "impact_analysis": "impact",
+    "observe": "neighbors",
+}
 FALLBACK_WINDOW = 5
 FALLBACK_TOOLS = frozenset({"read", "grep", "glob", "bash"})
 # Tools whose output is source material, i.e. what the navigator aimed to replace.
 READ_TOOLS = frozenset({"read", "grep", "glob"})
-ARG_KEYS = ("query", "node_id", "source", "target", "option_path", "path", "attribute")
+ARG_KEYS = (
+    "query",
+    "name",
+    "option_path",
+    "node_id",
+    "source",
+    "target",
+    "path",
+    "attribute",
+)
 MAX_ERROR_CHARS = 300
 
 DB_REL = Path(".repo-navigator") / "repo-navigator.db"
@@ -140,10 +157,11 @@ def _to_call(
         error = state.get("output")
     if error is not None:
         error = str(error)[:MAX_ERROR_CHARS]
+    name = tool.removeprefix(TOOL_PREFIX).removeprefix(SHORT_PREFIX)
     return Call(
         session=session,
         ts=ts,
-        tool=tool.removeprefix(TOOL_PREFIX).removeprefix(SHORT_PREFIX),
+        tool=TOOL_ALIASES.get(name, name),
         args=state.get("input") or {},
         status=str(state.get("status") or "unknown"),
         latency_ms=latency,
@@ -468,8 +486,7 @@ def collect_health(
         # A file can parse to zero nodes (e.g. fully commented stub) yet
         # still be indexed; file_state is the source of truth for coverage.
         graph_paths |= {
-            str(row[0])
-            for row in con.execute("SELECT path FROM file_state")
+            str(row[0]) for row in con.execute("SELECT path FROM file_state")
         }
     finally:
         con.close()
@@ -486,7 +503,9 @@ def collect_health(
             for path in disk_paths
             if not any(
                 path == prefix or path.startswith(prefix + "/")
-                for prefix in (e.strip().removeprefix("./").rstrip("/") for e in exclude)
+                for prefix in (
+                    e.strip().removeprefix("./").rstrip("/") for e in exclude
+                )
                 if prefix
             )
         }

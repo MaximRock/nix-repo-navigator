@@ -109,14 +109,14 @@ def test_usage_aggregates(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         stats,
         "registered_tools",
-        lambda: ["find_symbol", "observe", "get_package", "status", "path"],
+        lambda: ["find", "neighbors", "get_package", "status", "path"],
     )
     report = stats.build_report(db)
 
     assert report.calls == 4
     assert report.sessions == 1
-    assert set(report.by_tool) == {"find_symbol", "observe", "get_package", "status"}
-    assert report.by_tool["find_symbol"]["p50_ms"] == 10.0
+    assert set(report.by_tool) == {"find", "neighbors", "get_package", "status"}
+    assert report.by_tool["find"]["p50_ms"] == 10.0
     assert report.by_tool["get_package"]["errors"] == 1
     assert report.dead_tools == ["path"]
     assert len(report.errors) == 1
@@ -124,7 +124,7 @@ def test_usage_aggregates(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_usage_effectiveness(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(stats, "registered_tools", lambda: ["find_symbol"])
+    monkeypatch.setattr(stats, "registered_tools", lambda: ["find"])
     report = stats.build_report(db)
 
     # Only find_symbol is followed by a read within the window.
@@ -140,7 +140,7 @@ def test_usage_effectiveness(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_usage_since_keeps_sequence_positions(
     db: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(stats, "registered_tools", lambda: ["find_symbol"])
+    monkeypatch.setattr(stats, "registered_tools", lambda: ["find"])
     report = stats.build_report(db, since=3999)
 
     assert report.calls == 2
@@ -151,7 +151,7 @@ def test_usage_since_keeps_sequence_positions(
 
 
 def test_cli_json(db: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
-    monkeypatch.setattr(stats, "registered_tools", lambda: ["find_symbol"])
+    monkeypatch.setattr(stats, "registered_tools", lambda: ["find"])
     assert stats.main(["usage", "--db", str(db), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["calls"] == 4
@@ -160,9 +160,34 @@ def test_cli_json(db: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> Non
 
 def test_registered_tools_from_real_source() -> None:
     names = stats.registered_tools()
-    assert "observe" in names
-    assert "report" in names
-    assert len(names) >= 10
+    assert names == ["find", "impact", "module", "neighbors", "option", "status"]
+
+
+def test_usage_accepts_short_and_long_tool_names(tmp_path: Path) -> None:
+    path = tmp_path / "short.db"
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, "
+        "time_created INTEGER, time_updated INTEGER, data TEXT)"
+    )
+    parts = [
+        _tool_part("nix-repo-navigator_find", args={"query": "foo"}),
+        _tool_part(
+            "nix-repo-navigator_repo_navigator_summarize_module",
+            args={"path": "a.nix"},
+        ),
+        _tool_part("nix-repo-navigator_impact", args={"target": "a.nix"}),
+    ]
+    con.executemany(
+        "INSERT INTO part VALUES (?,?,?,?,?,?)",
+        [(f"p{i}", "s1", "s1", i, i, data) for i, data in enumerate(parts)],
+    )
+    con.commit()
+    con.close()
+
+    report = stats.build_report(path)
+    assert set(report.by_tool) == {"find", "module", "impact"}
+    assert stats.ARG_KEYS[:3] == ("query", "name", "option_path")
 
 
 # ------------------------------------------------------------------- health

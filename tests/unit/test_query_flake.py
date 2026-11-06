@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from repo_navigator.config import Config
-from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.graph.queries import QueryEngine
@@ -18,21 +17,38 @@ def test_index_flake_inputs(tmp_path: Path) -> None:
     lock = {
         "nodes": {
             "root": {},
-            "nixpkgs": {"locked": {"type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "abc", "url": "https://github.com/NixOS/nixpkgs"}},
-            "hm": {"locked": {"type": "github", "owner": "nix-community", "repo": "home-manager", "rev": "def"}},
+            "nixpkgs": {
+                "locked": {
+                    "type": "github",
+                    "owner": "NixOS",
+                    "repo": "nixpkgs",
+                    "rev": "abc",
+                    "url": "https://github.com/NixOS/nixpkgs",
+                }
+            },
+            "hm": {
+                "locked": {
+                    "type": "github",
+                    "owner": "nix-community",
+                    "repo": "home-manager",
+                    "rev": "def",
+                }
+            },
         },
         "root": "root",
         "version": 7,
     }
     (tmp_path / "flake.lock").write_text(json.dumps(lock))
-    (tmp_path / "flake.nix").write_text('{ inputs.nixpkgs.url = "github:NixOS/nixpkgs"; }')
-    (tmp_path / "a.nix").write_text('{ config.x = 1; }')
+    (tmp_path / "flake.nix").write_text(
+        '{ inputs.nixpkgs.url = "github:NixOS/nixpkgs"; }'
+    )
+    (tmp_path / "a.nix").write_text("{ config.x = 1; }")
 
     db = Database(":memory:")
     db.init_db()
     g = NxGraph()
     cfg = Config(root=tmp_path)
-    stats = index_repo(tmp_path, db, g, config=cfg)
+    index_repo(tmp_path, db, g, config=cfg)
 
     # Flake inputs should be in DB and graph
     inputs = db.get_flake_inputs()
@@ -55,14 +71,29 @@ def test_index_flake_input_follows_edges(tmp_path: Path) -> None:
         "nodes": {
             "root": {"inputs": {"comfyui-nix": "comfyui-nix"}},
             "comfyui-nix": {
-                "locked": {"type": "github", "owner": "o", "repo": "comfyui-nix", "rev": "aaa"},
+                "locked": {
+                    "type": "github",
+                    "owner": "o",
+                    "repo": "comfyui-nix",
+                    "rev": "aaa",
+                },
                 "inputs": {"flake-parts": "flake-parts", "nixpkgs": "nixpkgs"},
             },
             "flake-parts": {
-                "locked": {"type": "github", "owner": "o", "repo": "flake-parts", "rev": "bbb"}
+                "locked": {
+                    "type": "github",
+                    "owner": "o",
+                    "repo": "flake-parts",
+                    "rev": "bbb",
+                }
             },
             "nixpkgs": {
-                "locked": {"type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "ccc"}
+                "locked": {
+                    "type": "github",
+                    "owner": "NixOS",
+                    "repo": "nixpkgs",
+                    "rev": "ccc",
+                }
             },
         },
         "root": "root",
@@ -95,31 +126,32 @@ def test_query_flake_cli(tmp_path: Path) -> None:
     from repo_navigator.cli import app
 
     runner = CliRunner()
-    lock = {"nodes": {"root": {}, "nixpkgs": {"locked": {"rev": "abc", "url": "https://example.com"}}}, "version": 7}
+    lock = {
+        "nodes": {
+            "root": {},
+            "nixpkgs": {"locked": {"rev": "abc", "url": "https://example.com"}},
+        },
+        "version": 7,
+    }
     (tmp_path / "flake.lock").write_text(json.dumps(lock))
-    (tmp_path / "a.nix").write_text('{ config.x = 1; }')
+    (tmp_path / "a.nix").write_text("{ config.x = 1; }")
     db_path = tmp_path / "test.db"
     result = runner.invoke(app, ["index", str(tmp_path), "--db-path", str(db_path)])
     assert result.exit_code == 0, result.output
-    result = runner.invoke(app, ["query", "flake-inputs", "--root", str(tmp_path), "--db-path", str(db_path)])
+    result = runner.invoke(
+        app,
+        ["query", "flake-inputs", "--root", str(tmp_path), "--db-path", str(db_path)],
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     assert any(d["name"] == "nixpkgs" for d in data)
 
 
-def test_mcp_flake_inputs(tmp_path: Path) -> None:
-    import pytest
-
+def test_mcp_flake_inputs_are_cli_only(tmp_path: Path) -> None:
     db = Database(":memory:")
     db.init_db()
     g = NxGraph()
-    # Manually insert flake input
     db.upsert_flake_input("nixpkgs", "https://github.com/NixOS/nixpkgs", "abc")
-    from repo_navigator.models.nodes import Node, NodeType
-
-    n = Node(id="flake_input:nixpkgs", type=NodeType.flake_input, name="nixpkgs", metadata={"url": "https://github.com/NixOS/nixpkgs"})
-    db.upsert_node(n)
-    g.apply_delta(added_nodes=[n])
     from repo_navigator.graph.queries import QueryEngine
     from repo_navigator.mcp_server import create_mcp_server
 
@@ -128,11 +160,9 @@ def test_mcp_flake_inputs(tmp_path: Path) -> None:
 
     async def _run():
         tools = await server.list_tools()
-        assert any(t.name == "repo_navigator_list_flake_inputs" for t in tools)
-        res = await server.call_tool("repo_navigator_list_flake_inputs", {})
-        assert not res.is_error
-        # Should contain nixpkgs
-        assert any("nixpkgs" in str(res.structured_content) for _ in [1])
+        names = {t.name for t in tools}
+        assert names == {"find", "module", "impact", "option", "neighbors", "status"}
+        assert "list_flake_inputs" not in names
 
     import asyncio
 

@@ -130,8 +130,13 @@ class ImpactReport(BaseModel):
     affected_modules: list[str] = Field(default_factory=list)
     affected_options: list[str] = Field(default_factory=list)
     affected_files: list[str] = Field(default_factory=list)
+    # Options the target itself sets (outgoing ``sets`` edges).
+    options_set: list[str] = Field(default_factory=list)
     evidence: list[ImpactEvidence] = Field(default_factory=list)
     risk_level: RiskLevel = RiskLevel.low
+    # How the report was produced; static graph analysis cannot see dynamic
+    # imports or evaluation-time module composition.
+    basis: str = "static"
     generation_id: int
 
 

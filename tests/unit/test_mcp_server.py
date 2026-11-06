@@ -1,4 +1,4 @@
-"""Unit tests for MCP server (phase 7.1)."""
+"""Unit tests for the six-tool MCP surface (stage 2)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from repo_navigator.graph.builder import GraphBuilder
 from repo_navigator.graph.db import Database
 from repo_navigator.graph.nx_graph import NxGraph
 from repo_navigator.graph.queries import QueryEngine
-from repo_navigator.mcp_server import create_mcp_server
+from repo_navigator.mcp_server import ToolError, create_mcp_server
 from repo_navigator.models.edges import EdgeType, RawEdge
 from repo_navigator.models.nodes import NodeType, RawNode
 from repo_navigator.models.queries import ParseResult
@@ -26,14 +26,26 @@ def _setup_engine() -> QueryEngine:
     builder.build_file(
         "a.nix",
         ParseResult(
-            nodes=[_mod("a.nix")],
+            nodes=[
+                _mod("a.nix"),
+                RawNode(
+                    id="nix_option:services.bar.enable",
+                    type=NodeType.nix_option,
+                    name="services.bar.enable",
+                    metadata={"synthetic": True},
+                ),
+            ],
             edges=[
-                RawEdge(source="nix:a.nix", target="nix:b.nix", type=EdgeType.imports)
+                RawEdge(source="nix:a.nix", target="nix:b.nix", type=EdgeType.imports),
+                RawEdge(
+                    source="nix:a.nix",
+                    target="nix_option:services.bar.enable",
+                    type=EdgeType.sets,
+                ),
             ],
         ),
     )
     builder.build_file("b.nix", ParseResult(nodes=[_mod("b.nix")], edges=[]))
-    # Add option
     builder.build_file(
         "b.nix",
         ParseResult(
@@ -59,191 +71,107 @@ def _setup_engine() -> QueryEngine:
 
 
 @pytest.mark.asyncio
-async def test_mcp_server_has_17_tools() -> None:
+async def test_mcp_server_has_exactly_six_short_tools() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
     tools = await server.list_tools()
     names = {t.name for t in tools}
-    expected = {
-        "repo_navigator_observe",
-        "repo_navigator_hop",
-        "repo_navigator_path",
-        "repo_navigator_blast_radius",
-        "repo_navigator_dependencies",
-        "repo_navigator_dependents",
-        "repo_navigator_find_symbol",
-        "repo_navigator_summarize_module",
-        "repo_navigator_introspect_option",
-        "repo_navigator_eval_expression",
-        "repo_navigator_impact_analysis",
-        "repo_navigator_status",
-        "repo_navigator_refresh",
-        "repo_navigator_report",
-        "repo_navigator_list_flake_inputs",
-        "repo_navigator_list_packages",
-        "repo_navigator_get_package",
-    }
-    assert names == expected
+    assert names == {"find", "module", "impact", "option", "neighbors", "status"}
 
 
 @pytest.mark.asyncio
-async def test_mcp_observe() -> None:
+async def test_mcp_find_is_compact_and_has_provenance() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
     result = await server.call_tool(
-        "repo_navigator_observe", {"node_id": "nix:a.nix", "depth": 1}
+        "find",
+        {"query": "services.bar.enable", "fuzzy": True, "limit": 5},
     )
     assert not result.is_error
-    # structured_content should contain node
-    assert result.structured_content is not None
-    assert "node" in result.structured_content
+    nodes = result.structured_content["result"]
+    assert nodes
+    node = next(n for n in nodes if n["id"] == "nix_option:services.bar.enable")
+    assert node["metadata"]["defined_in"] == ["a.nix"]
+    assert "content_hash" not in node
+    assert "updated_at" not in node
 
 
 @pytest.mark.asyncio
-async def test_mcp_hop() -> None:
+async def test_mcp_module_is_compact() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_hop", {"node_id": "nix:a.nix", "depth": 1, "width": 10}
-    )
-    assert not result.is_error
-    assert "nodes" in result.structured_content
-
-
-@pytest.mark.asyncio
-async def test_mcp_path() -> None:
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_path", {"source": "nix:a.nix", "target": "nix:b.nix"}
-    )
-    assert not result.is_error
-    # Should return list
-    assert isinstance(result.structured_content, dict)
-    assert "result" in result.structured_content or isinstance(
-        result.structured_content, list
-    )
-
-
-@pytest.mark.asyncio
-async def test_mcp_blast_radius() -> None:
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_blast_radius", {"node_id": "nix:b.nix", "max_depth": 2}
-    )
-    assert not result.is_error
-
-
-@pytest.mark.asyncio
-async def test_mcp_dependencies() -> None:
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_dependencies", {"node_id": "nix:a.nix", "max_depth": 2}
-    )
+    result = await server.call_tool("module", {"path": "a.nix"})
     assert not result.is_error
     content = result.structured_content
-    assert "depends_on" in content
-    ids = {e["node"]["id"] for e in content["depends_on"]}
-    assert "nix:b.nix" in ids
+    assert content["path"] == "a.nix"
+    assert content["imports"] == ["b.nix"]
+    assert content["options_set"] == ["services.bar.enable"]
+    assert "outgoing_edges" not in content
+    assert "incoming_edges" not in content
 
 
 @pytest.mark.asyncio
-async def test_mcp_dependents() -> None:
+async def test_mcp_impact_accepts_path_and_is_static() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_dependents", {"node_id": "nix:b.nix", "max_depth": 2}
-    )
+    result = await server.call_tool("impact", {"target": "a.nix"})
     assert not result.is_error
     content = result.structured_content
-    assert "dependents" in content
-    ids = {e["node"]["id"] for e in content["dependents"]}
-    assert "nix:a.nix" in ids
+    assert content["target"] == "nix:a.nix"
+    assert content["basis"] == "static"
+    assert content["options_set"] == ["services.bar.enable"]
+    assert "evidence" not in content
 
 
 @pytest.mark.asyncio
-async def test_mcp_find_symbol() -> None:
+async def test_mcp_impact_accepts_legacy_node_id_alias() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    result = await server.call_tool("repo_navigator_find_symbol", {"query": "a.nix"})
+    result = await server.call_tool("impact", {"node_id": "nix:b.nix"})
     assert not result.is_error
+    assert result.structured_content["target"] == "nix:b.nix"
 
 
 @pytest.mark.asyncio
-async def test_mcp_summarize_module() -> None:
+async def test_mcp_option_accepts_name_and_alias() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_summarize_module", {"path": "a.nix"}
-    )
-    assert not result.is_error
-    assert result.structured_content["path"] == "a.nix"
-
-
-@pytest.mark.asyncio
-async def test_mcp_introspect_option() -> None:
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_introspect_option", {"option_path": "services.foo.enable"}
-    )
+    result = await server.call_tool("option", {"name": "services.foo.enable"})
     assert not result.is_error
     assert result.structured_content["option_path"] == "services.foo.enable"
+    result2 = await server.call_tool("option", {"option_path": "services.foo.enable"})
+    assert not result2.is_error
+    assert result2.structured_content["option_path"] == "services.foo.enable"
 
 
 @pytest.mark.asyncio
-async def test_mcp_eval_expression_mocked() -> None:
-    from unittest.mock import patch
-    import json
-
+async def test_mcp_neighbors_is_compact() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    with (
-        patch("repo_navigator.nix.eval.subprocess.run") as mock_run,
-        patch("repo_navigator.nix.eval.shutil.which", return_value="/nix/bin/nix"),
-    ):
-        mock_run.return_value.returncode = 0
-        mock_run.return_value.stdout = json.dumps(123)
-        mock_run.return_value.stderr = ""
-        result = await server.call_tool(
-            "repo_navigator_eval_expression", {"expr": "1+1"}
-        )
-        assert not result.is_error
-        assert result.structured_content["value_json"] == 123
-
-
-@pytest.mark.asyncio
-async def test_mcp_impact_analysis() -> None:
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-    result = await server.call_tool(
-        "repo_navigator_impact_analysis", {"node_id": "nix:b.nix"}
-    )
-    assert not result.is_error
-    assert "affected_modules" in result.structured_content
-
-
-@pytest.mark.asyncio
-async def test_mcp_report() -> None:
-    engine = _setup_engine()
-    server = create_mcp_server(engine=engine)
-    await server.call_tool("repo_navigator_observe", {"node_id": "nix:a.nix"})
-    result = await server.call_tool("repo_navigator_report", {})
+    result = await server.call_tool("neighbors", {"node_id": "nix:a.nix"})
     assert not result.is_error
     content = result.structured_content
-    assert content["queries_served"] >= 1
-    assert "observe" in content["queries_by_tool"]
+    assert content["node"]["id"] == "nix:a.nix"
+    assert content["neighbors"]
+    neighbor = content["neighbors"][0]
+    assert set(neighbor) == {"edge", "node", "dangling"}
+    assert "content_hash" not in neighbor["node"]
 
 
 @pytest.mark.asyncio
-async def test_mcp_status_and_refresh() -> None:
+async def test_mcp_status() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
-    result = await server.call_tool("repo_navigator_status", {})
+    result = await server.call_tool("status", {})
     assert not result.is_error
     assert "total_nodes" in result.structured_content
-    result2 = await server.call_tool("repo_navigator_refresh", {})
-    assert not result2.is_error
-    assert "generation_id" in result2.structured_content
+
+
+@pytest.mark.asyncio
+async def test_mcp_errors_are_tool_errors() -> None:
+    engine = _setup_engine()
+    server = create_mcp_server(engine=engine)
+    with pytest.raises(ToolError):
+        await server.call_tool("option", {})
+    with pytest.raises(ToolError):
+        await server.call_tool("impact", {"target": "missing.nix"})

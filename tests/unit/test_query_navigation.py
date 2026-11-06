@@ -407,6 +407,45 @@ class TestFindSymbol:
             assert len(page2) == 1
             assert page2[0].id == all_results[1].id
 
+    def test_find_synthetic_option_has_provenance(self) -> None:
+        db = Database(":memory:")
+        db.init_db()
+        g = NxGraph()
+        builder = GraphBuilder(db, g)
+        builder.build_file(
+            "base.nix",
+            ParseResult(
+                nodes=[_mod("base.nix")],
+                edges=[
+                    RawEdge(
+                        source="nix:base.nix",
+                        target="nix_option:fonts.packages",
+                        type=EdgeType.sets,
+                    )
+                ],
+            ),
+        )
+        builder.build_file(
+            "decl.nix",
+            ParseResult(
+                nodes=[_mod("decl.nix")],
+                edges=[
+                    RawEdge(
+                        source="nix:decl.nix",
+                        target="nix_option:fonts.packages",
+                        type=EdgeType.declares,
+                    )
+                ],
+            ),
+        )
+        engine = QueryEngine(db, g)
+
+        hits = engine.find_symbol("fonts")
+        hit = next(n for n in hits if n.id == "nix_option:fonts.packages")
+        assert hit.metadata["synthetic"] is True
+        assert hit.metadata["defined_in"] == ["base.nix"]
+        assert hit.metadata["declared_in"] == "decl.nix"
+
 
 class TestSummarizeModule:
     def test_summarize(self) -> None:
@@ -414,6 +453,12 @@ class TestSummarizeModule:
         summary = engine.summarize_module("b.nix")
         assert summary.path == "b.nix"
         assert any(e.type == EdgeType.declares for e in summary.outgoing_edges)
+        assert "services.foo.enable" in summary.key_symbols
+
+    def test_summarize_key_symbols_include_sets(self) -> None:
+        _, _, engine = _setup_chain()
+        summary = engine.summarize_module("c.nix")
+        # c.nix does not declare the option, it sets it.
         assert "services.foo.enable" in summary.key_symbols
 
     def test_summarize_missing(self) -> None:
@@ -429,6 +474,24 @@ class TestImpactAnalysis:
         assert "b.nix" in report.affected_modules or "a.nix" in report.affected_modules
         assert report.risk_level in ("low", "medium", "high")
         assert report.generation_id >= 1
+
+    def test_impact_accepts_path(self) -> None:
+        _, _, engine = _setup_chain()
+        report = engine.impact_analysis("c.nix")
+        assert report.target == "nix:c.nix"
+        assert set(report.affected_modules) == {"a.nix", "b.nix"}
+        assert report.options_set == ["services.foo.enable"]
+        assert report.basis == "static"
+
+    def test_impact_accepts_dot_slash_path(self) -> None:
+        _, _, engine = _setup_chain()
+        report = engine.impact_analysis("./c.nix")
+        assert report.target == "nix:c.nix"
+
+    def test_impact_missing_path_raises(self) -> None:
+        _, _, engine = _setup_chain()
+        with pytest.raises(KeyError):
+            engine.impact_analysis("missing.nix")
 
     def test_impact_low(self) -> None:
         db, g, engine = _setup_chain()
