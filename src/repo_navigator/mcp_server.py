@@ -2,8 +2,8 @@
 
 Exposes six graph tools for NixOS/home-manager work: ``find``, ``module``,
 ``impact``, ``option``, ``neighbors`` and ``status``. Generic where-is/code
-search belongs to graft; this server owns graph context, option provenance and
-change impact. Transport is stdio (JSON-RPC). Run with::
+search belongs to ``rg``/``read``; this server owns graph context, option
+provenance and change impact. Transport is stdio (JSON-RPC). Run with::
 
     python -m repo_navigator.mcp_server [--root PATH] [--db-path PATH]
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Iterable, TypeAlias
 
@@ -40,7 +41,7 @@ from repo_navigator.models.nodes import Node  # noqa: E402
 from repo_navigator.models.queries import ImpactReport, ModuleSummary  # noqa: E402
 
 INSTRUCTIONS = (
-    "NixOS/home-manager knowledge graph. Use graft for where-is and generic "
+    "NixOS/home-manager knowledge graph. Use rg/read for generic where-is and "
     "code search. Use this server for Nix graph context: find modules/options, "
     "module for key symbols and imports, option for declared_in/defined_in "
     "provenance, neighbors for direct edges, and impact before editing a shared "
@@ -177,6 +178,45 @@ def _find_nodes(nodes: Iterable[Node]) -> list[dict[str, Any]]:
     return [_brief_node(node) for node in nodes]
 
 
+def _not_found_suggestions(engine: QueryEngine, ref: str) -> list[str]:
+    """Find up to five node ids close to an unresolved lookup."""
+    target = ref.removeprefix("nix:").split("::", 1)[0]
+    stem = Path(target).stem
+    candidates = [stem]
+    candidates.extend(part for part in re.split(r"[^A-Za-z0-9]+", stem) if part)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        nodes = engine.find_symbol(candidate, fuzzy=True, limit=5)
+        if nodes:
+            return [node.id for node in nodes]
+    return []
+
+
+def _not_found_error(engine: QueryEngine, exc: KeyError) -> ToolError:
+    """Build an actionable ToolError for a missing module or impact target."""
+    message = str(exc.args[0]) if exc.args else str(exc)
+    ref = message.split(":", 1)[1].strip() if ":" in message else message
+    suggestions = _not_found_suggestions(engine, ref)
+    lines = [message, f"generation: {engine.status().generation_id}"]
+    if suggestions:
+        lines.append("similar nodes:")
+        lines.extend(f"  - {node_id}" for node_id in suggestions)
+    lines.extend(
+        [
+            'first run find with a short token (for example find "happ"), '
+            "then pass its id or path to impact/module.",
+            "if the file is new, check "
+            "`systemctl --user status nix-repo-navigator-watch` or run "
+            "`nix-repo-navigator refresh --root <repo>`.",
+        ]
+    )
+    return ToolError("\n".join(lines))
+
+
 # ------------------------------------------------------------------ factory
 
 
@@ -225,10 +265,9 @@ def create_mcp_server(
     ) -> list[dict[str, Any]]:
         """Find modules/options by name or id; real nodes rank before synthetic.
 
-        Prefer graft for generic code search. Use ``find`` to enter the Nix
-        graph, then ``module``/``option``/``impact`` for context. Synthetic
-        option nodes include ``metadata.declared_in`` and
-        ``metadata.defined_in`` provenance.
+        Use ``find`` to enter the Nix graph, then ``module``/``option``/
+        ``impact`` for context. Synthetic option nodes include
+        ``metadata.declared_in`` and ``metadata.defined_in`` provenance.
 
         Args:
             query: Search query.
@@ -264,7 +303,9 @@ def create_mcp_server(
         """
         try:
             summary = engine.summarize_module(path.removeprefix("nix:"))
-        except (KeyError, ValueError) as exc:
+        except KeyError as exc:
+            raise _not_found_error(engine, exc) from exc
+        except ValueError as exc:
             raise ToolError(str(exc)) from exc
         return _module_digest(summary)
 
@@ -288,7 +329,9 @@ def create_mcp_server(
         ref = _impact_ref(target, node_id)
         try:
             report = engine.impact_analysis(ref, max_depth=max_depth)
-        except (KeyError, ValueError) as exc:
+        except KeyError as exc:
+            raise _not_found_error(engine, exc) from exc
+        except ValueError as exc:
             raise ToolError(str(exc)) from exc
         return _impact_digest(report)
 

@@ -31,6 +31,16 @@ def _setup_engine() -> QueryEngine:
     return QueryEngine(db, g)
 
 
+def _setup_happ_engine() -> QueryEngine:
+    db = Database(":memory:")
+    db.init_db()
+    g = NxGraph()
+    builder = GraphBuilder(db, g)
+    path = "modules/nixos/networking/happ.nix"
+    builder.build_file(path, ParseResult(nodes=[_mod(path)], edges=[]))
+    return QueryEngine(db, g)
+
+
 def test_cli_start_help() -> None:
     result = runner.invoke(app, ["start", "--help"])
     assert result.exit_code == 0
@@ -138,6 +148,44 @@ def test_mcp_error_impact_missing() -> None:
     engine = _setup_engine()
     server = create_mcp_server(engine=engine)
     _expect_tool_error(server, "impact", {"target": "missing.nix"})
+
+
+def test_mcp_error_impact_suggests_close_module() -> None:
+    engine = _setup_happ_engine()
+    server = create_mcp_server(engine=engine)
+    message = _expect_tool_error(
+        server,
+        "impact",
+        {"target": "modules/nixos/networking/happ-legacy.nix"},
+    )
+    assert "happ.nix" in message
+    assert "find" in message
+    assert "generation" in message.lower()
+    assert "nix-repo-navigator-watch" in message
+
+
+def test_mcp_error_module_suggests_close_module() -> None:
+    engine = _setup_happ_engine()
+    server = create_mcp_server(engine=engine)
+    message = _expect_tool_error(
+        server,
+        "module",
+        {"path": "modules/nixos/networking/happ-legacy.nix"},
+    )
+    assert "happ.nix" in message
+    assert "find" in message
+
+
+def test_mcp_error_impact_keeps_value_error_message() -> None:
+    engine = _setup_engine()
+    server = create_mcp_server(engine=engine)
+    message = _expect_tool_error(
+        server,
+        "impact",
+        {"target": "a.nix", "max_depth": 11},
+    )
+    assert "max_depth" in message
+    assert "similar nodes" not in message
 
 
 def test_mcp_error_option_missing_name() -> None:

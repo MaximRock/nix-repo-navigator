@@ -5,8 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
+
+if TYPE_CHECKING:
+    from repo_navigator.config import Config
+    from repo_navigator.graph.db import Database
+    from repo_navigator.graph.nx_graph import NxGraph
 
 app = typer.Typer(
     name="repo-navigator",
@@ -344,6 +350,24 @@ def _run_index(
         db.close()
 
 
+def _catch_up_index(
+    root: Path,
+    db: Database,
+    nx_graph: NxGraph,
+    cfg: Config,
+) -> dict[str, int | float]:
+    """Run a full index pass at watcher startup and report its stats."""
+    from repo_navigator.indexer.scan import index_repo
+
+    stats = index_repo(root, db, nx_graph, config=cfg)
+    typer.echo(
+        f"catch-up: indexed {stats['files']} files, nodes={stats['nodes']}, "
+        f"edges={stats['edges']}, generation={stats['generation']}, "
+        f"parse_errors={stats['parse_errors']} ({stats['elapsed_ms']:.0f}ms)"
+    )
+    return stats
+
+
 async def _run_watch(
     path: Path,
     db_path: Path | None,
@@ -391,14 +415,8 @@ async def _run_watch(
     )
     typer.echo("Press Ctrl+C to stop.")
 
-    # Initial index if DB is empty
-    if db.count_nodes() == 0:
-        from repo_navigator.indexer.scan import index_repo
-
-        stats = index_repo(root, db, nx_graph, config=cfg)
-        typer.echo(f"initial index: {stats['files']} files, {stats['nodes']} nodes")
-
     try:
+        _catch_up_index(root, db, nx_graph, cfg)
         while True:
             batch = await event_router.queue.get()
             for file_path in batch:

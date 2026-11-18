@@ -4,7 +4,7 @@ All verbs are available through `QueryEngine` (Python) and the CLI
 (`nix-repo-navigator query *`). The MCP server deliberately exposes only six
 compact tools; the rest stay CLI-only to keep the agent surface small.
 
-**Division of labour:** use `graft` for generic where-is/code search. Use
+**Division of labour:** use `rg`/`read` for generic where-is/code search. Use
 `repo-navigator` for Nix graph context: module structure, option provenance and
 change impact.
 

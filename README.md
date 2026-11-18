@@ -9,7 +9,7 @@ Knowledge-graph assistant for **NixOS** and **home-manager** repositories. Build
 
 > **Миссия:** repo-navigator — MCP-компаньон AI-агента в NixOS/home-manager репозиториях. Индексирует репо в типизированный граф (модули, опции, файлы, flake-входы) и через MCP отдаёт агенту точный, компактный контекст и оценку влияния изменений — без повторного перечитывания исходников, экономя токены модели. **Nix в корне**, остальные языки — плагины.
 
-> **Status:** MVP 0.1.0 — 512 tests, 6 MCP tools, incremental indexing, KDL + Python plugins.
+> **Status:** MVP 0.1.0 — 517 tests, 6 MCP tools, incremental indexing, KDL + Python plugins.
 
 ## Quickstart (30s)
 
@@ -134,7 +134,7 @@ npx @modelcontextprotocol/inspector -- python -m repo_navigator.mcp_server --roo
 ```
 
 Tools: `find`, `module`, `impact`, `option`, `neighbors`, `status` (6).
-Use `graft` for generic where-is/code search; use navigator for Nix graph
+Use `rg`/`read` for generic where-is/code search; use navigator for Nix graph
 context, option provenance and change impact. Everything else (`hop`, `path`,
 `blast`, `dependencies`, `dependents`, `eval`, `refresh`, flake/package
 queries, `report`) stays available through the CLI.
