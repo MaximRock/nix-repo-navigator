@@ -44,11 +44,11 @@
 
 ## 5. Dotfiles: systemd-служба
 
-- [ ] Добавить `variables` в модуль `nix-repo-navigator`
-- [ ] Добавить `systemd.user.services.nix-repo-navigator-watch`
-- [ ] `Restart=on-failure`, `RestartSec=3s`, `WantedBy=default.target`
-- [ ] `Environment = [ "PYTHONPATH=" ]`
-- [ ] Проверить путь `variables.basePathFilesDir`
+- [x] Добавить `variables` в модуль `nix-repo-navigator`
+- [x] Добавить `systemd.user.services.nix-repo-navigator-watch`
+- [x] `Restart=on-failure`, `RestartSec=3s`, `WantedBy=default.target`
+- [x] `Environment = [ "PYTHONPATH=" ]`
+- [x] Проверить путь `variables.basePathFilesDir` → `/home/max/.dotfiles` (позиционный аргумент `watch`)
 
 ## 6. Dotfiles: отключение graft
 
@@ -67,9 +67,9 @@
 
 ## 7. Dotfiles: документация
 
-- [ ] Добавить в `AGENTS.md` правило «сначала `find`, потом `impact`»
-- [ ] Описать auto-refresh через `nix-repo-navigator-watch`
-- [ ] Описать ручной refresh только как fallback
+- [x] Добавить в `AGENTS.md` правило «сначала `find`, потом `impact`»
+- [x] Описать auto-refresh через `nix-repo-navigator-watch`
+- [x] Описать ручной refresh только как fallback
 
 ## 8. Деплой
 

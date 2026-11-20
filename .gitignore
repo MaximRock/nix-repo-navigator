@@ -30,3 +30,8 @@ parse_errors.log
 
 # Local bug reports (not committed)
 bug-reports/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
+# graft's ripgrep helper, auto-created by `graft build` alongside graft/.
+/.ignore

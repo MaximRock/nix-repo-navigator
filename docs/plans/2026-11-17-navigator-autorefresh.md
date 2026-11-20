@@ -162,7 +162,7 @@ feat: auto-refresh graph and actionable not-found hints
 systemd.user.services.nix-repo-navigator-watch = {
   Unit.Description = "nix-repo-navigator graph watcher";
   Service = {
-    ExecStart = "${nix-repo-navigator.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/nix-repo-navigator watch --root ${variables.basePathFilesDir} --plugins python --parse-unreferenced --exclude 11";
+    ExecStart = "${nix-repo-navigator.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/nix-repo-navigator watch ${variables.basePathFilesDir} --plugins python --parse-unreferenced --exclude 11";
     Environment = [ "PYTHONPATH=" ];
     Restart = "on-failure";
     RestartSec = "3s";

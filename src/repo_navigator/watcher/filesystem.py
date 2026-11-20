@@ -86,6 +86,7 @@ class _WatchdogHandler:
 
     def on_moved(self, event) -> None:  # type: ignore[no-untyped-def]
         if not event.is_directory:
+            self._handle(event.src_path)
             self._handle(event.dest_path)
 
 

@@ -84,6 +84,31 @@ def test_watcher_should_handle_only_nix(tmp_path: Path) -> None:
     loop.close()
 
 
+def test_watchdog_handler_moved_handles_both_paths(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from repo_navigator.watcher.filesystem import _WatchdogHandler
+
+    router = EventRouter()
+    loop = asyncio.new_event_loop()
+    handler = _WatchdogHandler(tmp_path, router, loop, Config(root=tmp_path))
+
+    seen: list[str] = []
+    handler._handle = lambda p: seen.append(str(p))  # type: ignore[method-assign]
+
+    handler.on_moved(
+        SimpleNamespace(
+            event_type="moved",
+            is_directory=False,
+            src_path=str(tmp_path / "old.nix"),
+            dest_path=str(tmp_path / "new.nix"),
+        )
+    )
+
+    assert seen == [str(tmp_path / "old.nix"), str(tmp_path / "new.nix")]
+    loop.close()
+
+
 def test_watchdog_handler_dispatch() -> None:
     from types import SimpleNamespace
 
